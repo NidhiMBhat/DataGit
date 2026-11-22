@@ -1,6 +1,7 @@
 import pytest
 from dagit.db.connection import get_db_cursor
 from dagit.versioning.commit import create_commit
+from dagit.versioning.history import get_history
 from dagit.versioning.storage import load_snapshot_from_storage
 
 def test_full_commit_workflow():
@@ -19,6 +20,9 @@ def test_full_commit_workflow():
     commit_id = create_commit(message="Initial commit with test_users", author="Nidhi")
     assert commit_id is not None
     print(f"Successfully created commit ID: {commit_id}")
+    history = get_history(limit=1)
+    assert history[0]["commit_id"] == commit_id
+    assert "parents" in history[0]
 
     # 3. Verify database state retrieval
     with get_db_cursor() as cursor:
