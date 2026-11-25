@@ -46,3 +46,9 @@ htmlcov/
 
 # DataGit Local Object Storage & Binary State Dumps
 .datagit_storage/
+
+
+# Node / Frontend
+node_modules/
+*.tsbuildinfo
+.vite/

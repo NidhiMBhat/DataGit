@@ -83,3 +83,44 @@ def test_compare_snapshots_combines_schema_and_row_changes():
 
     assert result["schema_changes"] == []
     assert result["row_changes"][0]["operation"] == "UPDATE"
+
+
+def test_diff_schema_reports_indexes_triggers_privileges_views_and_sequences():
+    old_snapshot = {
+        "tables": {
+            "items": {
+                "columns": [{"name": "id", "type": "integer"}],
+                "primary_keys": ["id"],
+                "indexes": [],
+                "triggers": [],
+                "privileges": [],
+                "rows": [],
+            }
+        },
+        "views": {"active_items": {"name": "active_items", "definition": "SELECT id FROM items"}},
+        "sequences": {"order_seq": {"name": "order_seq", "last_value": 1, "is_called": True}},
+    }
+    new_snapshot = {
+        "tables": {
+            "items": {
+                "columns": [{"name": "id", "type": "integer"}],
+                "primary_keys": ["id"],
+                "indexes": [{"name": "idx_items_id", "definition": "CREATE INDEX idx_items_id ON public.items (id)"}],
+                "triggers": [{"name": "trg_items", "definition": "CREATE TRIGGER trg_items BEFORE INSERT ON public.items FOR EACH ROW EXECUTE FUNCTION noop()"}],
+                "privileges": [{"grantee": "PUBLIC", "privilege_type": "SELECT", "is_grantable": "NO"}],
+                "rows": [],
+            }
+        },
+        "views": {
+            "active_items": {"name": "active_items", "definition": "SELECT id, 1 AS flag FROM items"},
+            "extra_view": {"name": "extra_view", "definition": "SELECT 1"},
+        },
+        "sequences": {},
+    }
+
+    changes = diff_schema(old_snapshot, new_snapshot)
+    ops = [change["operation"] for change in changes]
+    assert ops.count("ALTER_TABLE_METADATA") == 3
+    assert "CREATE_VIEW" in ops
+    assert "ALTER_VIEW" in ops
+    assert "DROP_SEQUENCE" in ops

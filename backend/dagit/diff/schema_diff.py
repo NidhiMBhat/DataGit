@@ -2,14 +2,39 @@ from typing import Any
 
 
 _CONSTRAINTS = ("primary_keys", "foreign_keys", "unique_constraints", "check_constraints")
+_TABLE_METADATA = ("indexes", "triggers", "privileges")
 
 
 def _column_map(table: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {column["name"]: column for column in table.get("columns", [])}
 
 
+def _diff_named_objects(
+    old_map: dict[str, Any],
+    new_map: dict[str, Any],
+    kind: str,
+    drop_op: str,
+    create_op: str,
+    alter_op: str,
+) -> list[dict[str, Any]]:
+    changes: list[dict[str, Any]] = []
+    for name in sorted(old_map.keys() - new_map.keys()):
+        changes.append({"operation": drop_op, kind: name, "before": old_map[name]})
+    for name in sorted(new_map.keys() - old_map.keys()):
+        changes.append({"operation": create_op, kind: name, "after": new_map[name]})
+    for name in sorted(old_map.keys() & new_map.keys()):
+        if old_map[name] != new_map[name]:
+            changes.append({
+                "operation": alter_op,
+                kind: name,
+                "before": old_map[name],
+                "after": new_map[name],
+            })
+    return changes
+
+
 def diff_schema(old_snapshot: dict[str, Any], new_snapshot: dict[str, Any]) -> list[dict[str, Any]]:
-    """Describe table, column, and constraint changes between two snapshots."""
+    """Describe table, column, constraint, index, trigger, privilege, view, and sequence changes."""
     old_tables = old_snapshot.get("tables", {})
     new_tables = new_snapshot.get("tables", {})
     changes: list[dict[str, Any]] = []
@@ -46,5 +71,33 @@ def diff_schema(old_snapshot: dict[str, Any], new_snapshot: dict[str, Any]) -> l
             if old_value != new_value:
                 changes.append({"operation": "ALTER_CONSTRAINT", "table": table_name,
                                 "constraint": constraint, "before": old_value, "after": new_value})
+
+        for field in _TABLE_METADATA:
+            old_value, new_value = old_table.get(field, []), new_table.get(field, [])
+            if old_value != new_value:
+                changes.append({
+                    "operation": "ALTER_TABLE_METADATA",
+                    "table": table_name,
+                    "field": field,
+                    "before": old_value,
+                    "after": new_value,
+                })
+
+    changes.extend(_diff_named_objects(
+        old_snapshot.get("views") or {},
+        new_snapshot.get("views") or {},
+        "view",
+        "DROP_VIEW",
+        "CREATE_VIEW",
+        "ALTER_VIEW",
+    ))
+    changes.extend(_diff_named_objects(
+        old_snapshot.get("sequences") or {},
+        new_snapshot.get("sequences") or {},
+        "sequence",
+        "DROP_SEQUENCE",
+        "CREATE_SEQUENCE",
+        "ALTER_SEQUENCE",
+    ))
 
     return changes

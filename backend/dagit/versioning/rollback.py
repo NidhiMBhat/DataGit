@@ -1,11 +1,18 @@
+from dagit.api.security import DirtyWorkspaceError, is_dirty_protection_enabled
 from dagit.db.connection import get_db_cursor
 from dagit.versioning.commit import record_commit_in_cursor
 from dagit.versioning.metadata import init_metadata_tables
 from dagit.versioning.restore import restore_snapshot_in_cursor
+from dagit.versioning.snapshot import compute_snapshot_hash, generate_database_snapshot
 from dagit.versioning.storage import load_snapshot_from_storage
 
 
-def rollback(commit_id: int | None = None, author: str = "DataGit") -> int:
+def rollback(
+    commit_id: int | None = None,
+    author: str = "DataGit",
+    allow_dirty: bool = False,
+    require_clean: bool = False,
+) -> int:
     """Restore a target state and record the rollback as a new commit."""
     init_metadata_tables()
     with get_db_cursor(commit=True) as cursor:
@@ -23,6 +30,20 @@ def rollback(commit_id: int | None = None, author: str = "DataGit") -> int:
             if active_branch is not None
             else workspace["detached_commit"]
         )
+
+        if not allow_dirty and (require_clean or is_dirty_protection_enabled()) and current_head is not None:
+            cursor.execute(
+                "SELECT state_id FROM datagit_commits WHERE commit_id = %s;",
+                (current_head,),
+            )
+            head_row = cursor.fetchone()
+            if head_row is not None:
+                head_snapshot = load_snapshot_from_storage(head_row["state_id"])
+                current_snapshot = generate_database_snapshot(cursor=cursor)
+                if compute_snapshot_hash(current_snapshot) != compute_snapshot_hash(head_snapshot):
+                    raise DirtyWorkspaceError(
+                        "Working database has uncommitted changes; commit or pass allow_dirty=True"
+                    )
 
         if commit_id is None:
             if current_head is None:

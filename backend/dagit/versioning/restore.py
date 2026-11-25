@@ -12,6 +12,18 @@ _INTERNAL_TABLES = {
     "datagit_commit_parents",
 }
 
+_ALLOWED_PRIVILEGES = {
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+    "ALL",
+    "ALL PRIVILEGES",
+}
+
 
 def _column_type(column: dict[str, Any]) -> str:
     value = column.get("type")
@@ -37,8 +49,91 @@ def _constraints(table_name: str, table: dict[str, Any]) -> list[dict[str, Any]]
     return []
 
 
+def _restore_sequences(cursor, sequences: dict[str, Any]) -> None:
+    for seq_name in sorted(sequences):
+        seq = sequences[seq_name]
+        data_type = seq.get("data_type", "bigint")
+        if data_type not in ("smallint", "integer", "bigint"):
+            raise ValueError(f"Unsupported sequence data type {data_type!r} for {seq_name!r}")
+        cycle_sql = sql.SQL("CYCLE") if seq.get("cycle") else sql.SQL("NO CYCLE")
+        cursor.execute(
+            sql.SQL(
+                "CREATE SEQUENCE {}.{} AS {} INCREMENT BY {} MINVALUE {} "
+                "MAXVALUE {} START WITH {} CACHE {} {}"
+            ).format(
+                sql.Identifier("public"),
+                sql.Identifier(seq_name),
+                sql.SQL(data_type),
+                sql.Literal(int(seq.get("increment_by", 1))),
+                sql.Literal(int(seq.get("min_value", 1))),
+                sql.Literal(int(seq.get("max_value", 9223372036854775807))),
+                sql.Literal(int(seq.get("start_value", 1))),
+                sql.Literal(int(seq.get("cache_size", 1))),
+                cycle_sql,
+            )
+        )
+        last_value = seq.get("last_value")
+        is_called = seq.get("is_called")
+        if last_value is not None and is_called is not None:
+            cursor.execute(
+                "SELECT setval(%s::regclass, %s, %s);",
+                (f'public."{seq_name.replace(chr(34), chr(34) * 2)}"', int(last_value), bool(is_called)),
+            )
+
+
+def _restore_views(cursor, views: dict[str, Any]) -> None:
+    for view_name in sorted(views):
+        view = views[view_name]
+        definition = view.get("definition")
+        if not isinstance(definition, str) or not definition.strip():
+            raise ValueError(f"Invalid view definition for {view_name!r}")
+        cleaned_definition = definition.strip().rstrip(";")
+        cursor.execute(
+            sql.SQL("CREATE OR REPLACE VIEW {}.{} AS {}").format(
+                sql.Identifier("public"),
+                sql.Identifier(view_name),
+                sql.SQL(cleaned_definition),
+            )
+        )
+
+
+def _restore_table_privileges(cursor, table_name: str, privileges: list[dict[str, Any]]) -> None:
+    if not privileges:
+        return
+    cursor.execute("SELECT current_user AS current_role;")
+    current_role = cursor.fetchone()["current_role"]
+    for privilege in privileges:
+        grantee = privilege.get("grantee")
+        priv_type = (privilege.get("privilege_type") or "").upper()
+        if not grantee or priv_type not in _ALLOWED_PRIVILEGES:
+            raise ValueError(f"Invalid privilege entry for table {table_name!r}: {privilege!r}")
+        if grantee == current_role:
+            continue
+        if grantee == "PUBLIC":
+            grantee_sql = sql.SQL("PUBLIC")
+        else:
+            cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s;", (grantee,))
+            if cursor.fetchone() is None:
+                continue
+            grantee_sql = sql.Identifier(grantee)
+        grant_option = (
+            sql.SQL(" WITH GRANT OPTION")
+            if str(privilege.get("is_grantable", "NO")).upper() == "YES"
+            else sql.SQL("")
+        )
+        cursor.execute(
+            sql.SQL("GRANT {} ON TABLE {}.{} TO {}{}").format(
+                sql.SQL(priv_type),
+                sql.Identifier("public"),
+                sql.Identifier(table_name),
+                grantee_sql,
+                grant_option,
+            )
+        )
+
+
 def restore_snapshot_in_cursor(cursor, snapshot: dict[str, Any]) -> None:
-    """Replace public application tables from a snapshot inside the caller's transaction."""
+    """Replace public application objects from a snapshot inside the caller's transaction."""
     tables = snapshot.get("tables")
     if not isinstance(tables, dict):
         raise ValueError("Snapshot must contain a tables object")
@@ -46,6 +141,24 @@ def restore_snapshot_in_cursor(cursor, snapshot: dict[str, Any]) -> None:
         raise ValueError("Snapshot table names must be non-empty strings")
     if _INTERNAL_TABLES.intersection(tables):
         raise ValueError("Snapshot must not include DataGit metadata tables")
+
+    views = snapshot.get("views") or {}
+    sequences = snapshot.get("sequences") or {}
+    if not isinstance(views, dict) or not isinstance(sequences, dict):
+        raise ValueError("Snapshot views and sequences must be objects when provided")
+
+    cursor.execute("""
+        SELECT table_name
+        FROM information_schema.views
+        WHERE table_schema = 'public'
+        ORDER BY table_name;
+    """)
+    for row in cursor.fetchall():
+        cursor.execute(
+            sql.SQL("DROP VIEW IF EXISTS {}.{} CASCADE").format(
+                sql.Identifier("public"), sql.Identifier(row["table_name"])
+            )
+        )
 
     cursor.execute("""
         SELECT t.relname AS table_name, c.conname AS constraint_name
@@ -80,6 +193,33 @@ def restore_snapshot_in_cursor(cursor, snapshot: dict[str, Any]) -> None:
                 sql.Identifier("public"), sql.Identifier(row["table_name"])
             )
         )
+
+    cursor.execute("""
+        SELECT s.sequencename AS name
+        FROM pg_sequences s
+        JOIN pg_class seq_cls ON seq_cls.relname = s.sequencename
+        JOIN pg_namespace n
+          ON n.oid = seq_cls.relnamespace AND n.nspname = s.schemaname
+        WHERE s.schemaname = 'public'
+          AND seq_cls.relkind = 'S'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend d
+              JOIN pg_class owner_cls ON owner_cls.oid = d.refobjid
+              WHERE d.objid = seq_cls.oid
+                AND d.deptype IN ('a', 'i')
+                AND owner_cls.relnamespace = n.oid
+          )
+        ORDER BY s.sequencename;
+    """)
+    for row in cursor.fetchall():
+        cursor.execute(
+            sql.SQL("DROP SEQUENCE IF EXISTS {}.{} CASCADE").format(
+                sql.Identifier("public"), sql.Identifier(row["name"])
+            )
+        )
+
+    _restore_sequences(cursor, sequences)
 
     for table_name in sorted(tables):
         if not isinstance(table_name, str) or not table_name:
@@ -210,3 +350,21 @@ def restore_snapshot_in_cursor(cursor, snapshot: dict[str, Any]) -> None:
                 sql.SQL(constraint["definition"]),
             )
         )
+
+    for table_name in sorted(tables):
+        table = tables[table_name]
+        for index in table.get("indexes", []):
+            definition = index.get("definition")
+            if not isinstance(definition, str) or not definition.strip():
+                raise ValueError(f"Invalid index definition for table {table_name!r}")
+            cursor.execute(sql.SQL(definition))
+
+        for trigger in table.get("triggers", []):
+            definition = trigger.get("definition")
+            if not isinstance(definition, str) or not definition.strip():
+                raise ValueError(f"Invalid trigger definition for table {table_name!r}")
+            cursor.execute(sql.SQL(definition))
+
+        _restore_table_privileges(cursor, table_name, table.get("privileges", []))
+
+    _restore_views(cursor, views)

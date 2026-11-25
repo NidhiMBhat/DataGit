@@ -1,0 +1,23 @@
+{
+  "name": "datagit-fullstack",
+  "version": "1.0.0",
+  "description": "DataGit: PostgreSQL Version Control Full Stack Application",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview",
+    "backend": "PYTHONPATH=backend .venv/bin/python -m uvicorn dagit.api.app:app --reload --host 127.0.0.1 --port 8000",
+    "seed": "PYTHONPATH=backend .venv/bin/python backend/populate_demo_db.py"
+  },
+  "keywords": [
+    "datagit",
+    "postgresql",
+    "version-control",
+    "react",
+    "vite",
+    "fastapi"
+  ],
+  "author": "DataGit",
+  "license": "MIT"
+}

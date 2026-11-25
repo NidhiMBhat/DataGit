@@ -24,6 +24,8 @@ _NAMED_COLLECTIONS = {
     "foreign_keys": "name",
     "unique_constraints": "name",
     "check_constraints": "name",
+    "indexes": "name",
+    "triggers": "name",
 }
 
 
@@ -69,19 +71,48 @@ def _merge_collection(base, ours, theirs, identity: str):
     return merged, conflicts
 
 
+def _merge_privileges(base: list, ours: list, theirs: list):
+    def _priv_key(item: dict) -> tuple[str, str]:
+        return (item.get("grantee", ""), item.get("privilege_type", ""))
+
+    base_map = {_priv_key(item): item for item in base}
+    ours_map = {_priv_key(item): item for item in ours}
+    theirs_map = {_priv_key(item): item for item in theirs}
+    merged = []
+    conflicts = []
+
+    for key in sorted(base_map.keys() | ours_map.keys() | theirs_map.keys()):
+        value, conflict = _merge_value(
+            base_map.get(key, _MISSING),
+            ours_map.get(key, _MISSING),
+            theirs_map.get(key, _MISSING),
+        )
+        if conflict:
+            conflicts.append(f"{key[0]}:{key[1]}")
+        elif value is not _MISSING:
+            merged.append(value)
+    return merged, conflicts
+
+
 def _merge_schema(base: dict, ours: dict, theirs: dict):
     merged = {}
     conflicts = []
     fields = base.keys() | ours.keys() | theirs.keys()
     for field in sorted(fields - {"rows"}):
-        base_value = base.get(field, [] if field in _NAMED_COLLECTIONS or field == "primary_keys" else _MISSING)
-        ours_value = ours.get(field, [] if field in _NAMED_COLLECTIONS or field == "primary_keys" else _MISSING)
-        theirs_value = theirs.get(field, [] if field in _NAMED_COLLECTIONS or field == "primary_keys" else _MISSING)
+        is_list_field = field in _NAMED_COLLECTIONS or field in ("primary_keys", "privileges")
+        base_value = base.get(field, [] if is_list_field else _MISSING)
+        ours_value = ours.get(field, [] if is_list_field else _MISSING)
+        theirs_value = theirs.get(field, [] if is_list_field else _MISSING)
 
         if field in _NAMED_COLLECTIONS:
             value, field_conflicts = _merge_collection(
                 base_value, ours_value, theirs_value, _NAMED_COLLECTIONS[field]
             )
+            conflicts.extend(
+                {"field": field, "name": name} for name in field_conflicts
+            )
+        elif field == "privileges":
+            value, field_conflicts = _merge_privileges(base_value, ours_value, theirs_value)
             conflicts.extend(
                 {"field": field, "name": name} for name in field_conflicts
             )
@@ -344,6 +375,32 @@ def _validate_relations(snapshot: dict) -> list[dict[str, Any]]:
     return conflicts
 
 
+def _merge_named_object_maps(
+    base_map: dict,
+    ours_map: dict,
+    theirs_map: dict,
+    object_type: str,
+) -> tuple[dict, list[dict[str, Any]]]:
+    merged = {}
+    conflicts = []
+    for name in sorted(base_map.keys() | ours_map.keys() | theirs_map.keys()):
+        value, conflict = _merge_value(
+            base_map.get(name, _MISSING),
+            ours_map.get(name, _MISSING),
+            theirs_map.get(name, _MISSING),
+        )
+        if conflict:
+            conflicts.append({
+                "type": "schema",
+                "object_type": object_type,
+                "name": name,
+                "reason": f"Both branches modified {object_type} {name!r} incompatibly",
+            })
+        elif value is not _MISSING:
+            merged[name] = value
+    return merged, conflicts
+
+
 def merge_snapshots(base: dict, ours: dict, theirs: dict) -> dict[str, Any]:
     """Three-way merge snapshots; report conflicts instead of choosing a winner."""
     base_tables = base.get("tables", {})
@@ -363,7 +420,18 @@ def merge_snapshots(base: dict, ours: dict, theirs: dict) -> dict[str, Any]:
         if merged is not None and merged is not _MISSING:
             merged_tables[table_name] = merged
 
-    merged_snapshot = {"tables": merged_tables}
+    merged_snapshot: dict[str, Any] = {"tables": merged_tables}
+    for top_key, object_type in (("views", "view"), ("sequences", "sequence")):
+        if any(top_key in snap for snap in (base, ours, theirs)):
+            merged_objects, object_conflicts = _merge_named_object_maps(
+                base.get(top_key) or {},
+                ours.get(top_key) or {},
+                theirs.get(top_key) or {},
+                object_type,
+            )
+            conflicts.extend(object_conflicts)
+            merged_snapshot[top_key] = merged_objects
+
     conflicts.extend(_validate_relations(merged_snapshot))
     return {"snapshot": None if conflicts else merged_snapshot, "conflicts": conflicts}
 

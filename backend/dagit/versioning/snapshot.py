@@ -20,8 +20,8 @@ def _serialized(value) -> str:
 
 
 def generate_database_snapshot(target_conn_params=None, cursor=None):
-    """Capture public application tables, their supported constraints, and rows."""
-    snapshot_data = {"tables": {}}
+    """Capture public application tables, constraints, rows, indexes, triggers, privileges, views, and sequences."""
+    snapshot_data = {"tables": {}, "views": {}, "sequences": {}}
 
     cursor_context = get_db_cursor() if cursor is None else nullcontext(cursor)
     with cursor_context as cursor:
@@ -96,6 +96,48 @@ def generate_database_snapshot(target_conn_params=None, cursor=None):
                 ORDER BY c.contype, c.conname;
             """, (table_name,))
             constraints = [dict(constraint) for constraint in cursor.fetchall()]
+
+            cursor.execute("""
+                SELECT idx.relname AS name,
+                       pg_get_indexdef(i.indexrelid) AS definition
+                FROM pg_index i
+                JOIN pg_class tbl ON tbl.oid = i.indrelid
+                JOIN pg_namespace n ON n.oid = tbl.relnamespace
+                JOIN pg_class idx ON idx.oid = i.indexrelid
+                WHERE n.nspname = 'public'
+                  AND tbl.relname = %s
+                  AND NOT i.indisprimary
+                  AND NOT EXISTS (
+                      SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid
+                  )
+                ORDER BY idx.relname;
+            """, (table_name,))
+            indexes = [dict(index) for index in cursor.fetchall()]
+
+            cursor.execute("""
+                SELECT t.tgname AS name,
+                       pg_get_triggerdef(t.oid, TRUE) AS definition
+                FROM pg_trigger t
+                JOIN pg_class tbl ON tbl.oid = t.tgrelid
+                JOIN pg_namespace n ON n.oid = tbl.relnamespace
+                WHERE n.nspname = 'public'
+                  AND tbl.relname = %s
+                  AND NOT t.tgisinternal
+                ORDER BY t.tgname;
+            """, (table_name,))
+            triggers = [dict(trigger) for trigger in cursor.fetchall()]
+
+            cursor.execute("""
+                SELECT grantee,
+                       privilege_type,
+                       is_grantable
+                FROM information_schema.role_table_grants
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+                ORDER BY grantee, privilege_type;
+            """, (table_name,))
+            privileges = [dict(privilege) for privilege in cursor.fetchall()]
+
             cursor.execute(
                 sql.SQL("SELECT * FROM {}.{}").format(
                     sql.Identifier("public"), sql.Identifier(table_name)
@@ -121,8 +163,61 @@ def generate_database_snapshot(target_conn_params=None, cursor=None):
                     constraint for constraint in constraints if constraint["type"] == "c"
                 ],
                 "constraints": constraints,
+                "indexes": indexes,
+                "triggers": triggers,
+                "privileges": privileges,
                 "rows": rows,
             }
+
+        cursor.execute("""
+            SELECT c.relname AS name,
+                   pg_get_viewdef(c.oid, TRUE) AS definition
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind = 'v'
+            ORDER BY c.relname;
+        """)
+        for view in cursor.fetchall():
+            snapshot_data["views"][view["name"]] = dict(view)
+
+        cursor.execute("""
+            SELECT s.sequencename AS name,
+                   s.data_type::text AS data_type,
+                   s.start_value,
+                   s.min_value,
+                   s.max_value,
+                   s.increment_by,
+                   s.cycle,
+                   s.cache_size,
+                   s.last_value
+            FROM pg_sequences s
+            JOIN pg_class seq_cls ON seq_cls.relname = s.sequencename
+            JOIN pg_namespace n
+              ON n.oid = seq_cls.relnamespace AND n.nspname = s.schemaname
+            WHERE s.schemaname = 'public'
+              AND seq_cls.relkind = 'S'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM pg_depend d
+                  JOIN pg_class owner_cls ON owner_cls.oid = d.refobjid
+                  WHERE d.objid = seq_cls.oid
+                    AND d.deptype IN ('a', 'i')
+                    AND owner_cls.relnamespace = n.oid
+              )
+            ORDER BY s.sequencename;
+        """)
+        for sequence in cursor.fetchall():
+            seq_dict = dict(sequence)
+            cursor.execute(
+                sql.SQL("SELECT last_value, is_called FROM {}.{}").format(
+                    sql.Identifier("public"), sql.Identifier(seq_dict["name"])
+                )
+            )
+            state = cursor.fetchone()
+            seq_dict["last_value"] = state["last_value"]
+            seq_dict["is_called"] = state["is_called"]
+            snapshot_data["sequences"][seq_dict["name"]] = seq_dict
 
     return snapshot_data
 
