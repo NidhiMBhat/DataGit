@@ -9,6 +9,8 @@ from dagit.versioning.commit import create_commit
 from dagit.versioning.history import get_commit, get_history
 from dagit.versioning.merge import MergeConflictError, merge_branch, merge_commits
 from dagit.versioning.rollback import rollback
+from dagit.versioning.snapshot import generate_database_snapshot
+from dagit.versioning.storage import load_snapshot_from_storage
 from dagit.versioning.storage_benchmark import (
     benchmark_commits,
     benchmark_snapshots,
@@ -137,6 +139,86 @@ def read_diff(from_commit_id: int, to_commit_id: int):
         return compare_commits(from_commit_id, to_commit_id)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get("/schema", dependencies=[Depends(verify_read_access)])
+def read_schema(commit_id: int | None = None, branch: str | None = None):
+    """Inspect the database schema, tables, constraints, indexes, and views for any branch, commit, or current database."""
+    try:
+        if commit_id is not None:
+            commit_meta = get_commit(commit_id)
+            state_id = commit_meta["state_id"]
+            snapshot = load_snapshot_from_storage(state_id)
+            target = f"Commit #{commit_id}: {commit_meta.get('message', '')}"
+        elif branch is not None:
+            branches = {b["name"]: b for b in list_branches()}
+            if branch not in branches:
+                raise ValueError(f"Unknown branch: {branch}")
+            head_id = branches[branch]["head_commit"]
+            if head_id is None:
+                return {
+                    "target": f"Branch '{branch}' (Empty)",
+                    "branch": branch,
+                    "tables": {},
+                    "views": {},
+                    "sequences": {},
+                    "total_tables": 0,
+                    "total_views": 0,
+                    "total_sequences": 0,
+                }
+            commit_meta = get_commit(head_id)
+            state_id = commit_meta["state_id"]
+            snapshot = load_snapshot_from_storage(state_id)
+            target = f"Branch '{branch}' (HEAD #{head_id})"
+        else:
+            snapshot = generate_database_snapshot()
+            target = "Current Working Database (Live Workspace)"
+
+        tables_summary = {}
+        for tbl_name, tbl_data in snapshot.get("tables", {}).items():
+            cols = tbl_data.get("columns", [])
+            constrs = tbl_data.get("constraints", [])
+            pk_cols = set()
+            fk_links = []
+            for c in constrs:
+                if c.get("type") == "p":
+                    pk_cols.update(c.get("columns") or [])
+                elif c.get("type") == "f":
+                    fk_links.append({
+                        "name": c.get("name"),
+                        "columns": c.get("columns", []),
+                        "referenced_table": c.get("referenced_table"),
+                        "referenced_columns": c.get("referenced_columns", []),
+                    })
+
+            enriched_cols = []
+            for col in cols:
+                enriched_cols.append({
+                    **col,
+                    "is_pk": col.get("name") in pk_cols,
+                })
+
+            tables_summary[tbl_name] = {
+                "columns": enriched_cols,
+                "constraints": constrs,
+                "foreign_keys": fk_links,
+                "indexes": tbl_data.get("indexes", []),
+                "row_count": len(tbl_data.get("rows", [])),
+            }
+
+        return {
+            "target": target,
+            "commit_id": commit_id,
+            "branch": branch,
+            "tables": tables_summary,
+            "views": snapshot.get("views", {}),
+            "sequences": snapshot.get("sequences", {}),
+            "total_tables": len(tables_summary),
+            "total_views": len(snapshot.get("views", {})),
+            "total_sequences": len(snapshot.get("sequences", {})),
+        }
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/merge", dependencies=[Depends(verify_write_access)])

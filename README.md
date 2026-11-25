@@ -91,18 +91,23 @@ DataGit features a full stack architecture combining a FastAPI PostgreSQL engine
 ### Dashboard capabilities
 
 - **History & Timeline:** interactive DAG visualization showing chronological commits, author, timestamp, parent lineage, SHA-256 hash copying, and quick-action buttons (compare against HEAD/parent, checkout commit in detached HEAD mode, branch from here, and rollback).
+- **Visual Database Schema Explorer:** inspect tables, column types, primary keys, foreign keys, constraints, non-constraint indexes, row counts, entity relationships, views, and sequences across the live workspace, any branch HEAD, or any historical commit snapshot.
 - **Snapshot & Commit Creator:** capture PostgreSQL `public` base tables, relational constraints, rows, indexes, user triggers, privileges, views, and standalone sequences into a content-addressed snapshot.
 - **Branch Management:** view all branches and their active HEAD commits, switch branches with transactional restoration, and create new branches from active HEAD or a specific commit.
-- **Diff Inspector:** inspect schema changes (added, dropped, altered tables/columns/constraints and extended objects) and row changes (inserted, deleted, updated with before/after diffs) between any two commits.
+- **Diff Inspector:** inspect schema changes (added, dropped, altered tables/columns/constraints and extended objects) and row changes (inserted, deleted, updated with column-level before/after diffs) between any two commits, complete with 1-click comparison presets.
 - **3-Way Merge & Conflict Resolution:** merge a source branch or commit into the active branch with automatic ancestor resolution; displays conflict reports (HTTP `409`) detailing colliding rows, schema incompatibilities, and relational constraints when merges cannot be cleanly combined.
 - **Storage & Performance Benchmark Dashboard:** run multi-iteration benchmarks comparing JSONB Full Snapshots, Delta persistence chains, and Shared Tables against existing commits or configurable synthetic workloads; visualizes payload sizes, relation/TOAST overheads (`pg_total_relation_size`), write/read/reconstruction timings, SHA-256 integrity verification, and storage recommendations.
 - **Time-Travel & Rollback Station:** atomically revert the live PostgreSQL database to any historical snapshot state with transactional safety guarantees and uncommitted workspace safeguards (`allow_dirty`).
 - **Auth & Operational Safeguards Modal:** configure `X-API-Key` or Bearer tokens, view read-only mode warnings, and manage default workspace protection settings directly in the UI.
+- **Light & Neutral Grey-Black Dark Modes:** sleek UI inspired by RonDesignLab / Sugar CRM with slim icon rail, horizontal pill navigation, and strict neutral grey-black dark mode (no blue/navy tint).
+
+> 📖 **Looking for a step-by-step walkthrough of all features?** Check out [USERGUIDE.md](file:///Users/shash/Downloads/DBMS/DataGit/USERGUIDE.md)!
 
 The API is mounted at `/api`:
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET` | `/api/schema` | Inspect database schema for live database, a branch HEAD, or a specific commit (`?commit_id=X` or `?branch=Y`) |
 | `POST` | `/api/commits` | Snapshot the current database and create a commit |
 | `GET` | `/api/commits/{commit_id}` | Retrieve commit metadata |
 | `GET` | `/api/history` | Read all commits reachable from HEAD; accepts optional `branch` and `limit` |
@@ -111,7 +116,7 @@ The API is mounted at `/api`:
 | `POST` | `/api/checkout/commits/{commit_id}` | Restore a commit and enter detached-HEAD mode; accepts optional `allow_dirty` query flag |
 | `POST` | `/api/checkout/branches/{name}` | Restore and switch to a branch; accepts optional `allow_dirty` query flag |
 | `POST` | `/api/rollback` | Restore a target (or previous) commit and record a new rollback commit |
-| `GET` | `/api/diff/{from_commit_id}/{to_commit_id}` | Compare row and schema changes |
+| `GET` | `/api/diff/{from_commit_id}/{to_commit_id}` | Compare row and schema changes with structured summary |
 | `POST` | `/api/merge` | Merge exactly one source commit or branch into the active branch |
 | `POST` | `/api/storage/benchmark` | Compare JSONB snapshot, delta, and shared-table storage for `commit_ids` or a `synthetic_workload` across 1-20 `iterations` |
 
@@ -175,6 +180,10 @@ Normal commits currently store full JSON snapshots as content-addressed local fi
 ## What's done so far
 
 - **Full Stack React + Vite Application:** modern, type-safe React 19 + TypeScript frontend built with Vite, modular custom components, tabbed views, interactive commit DAG timeline, deep visual diff inspector, 3-way merge conflict reporter, real-time storage benchmark visualizations, transactional rollback station, and persistent auth/safeguards management; seamlessly integrated with FastAPI via reverse proxy in development and optimized static asset serving in production.
+- **Visual Database Schema Explorer:** dedicated interactive schema viewer rendering PostgreSQL tables, column types, primary keys, foreign keys, constraints, non-constraint indexes, row counts, entity relationships, views, and sequences across live workspace, branch HEADs, or any historical commit snapshot.
+- **RonDesignLab / Sugar CRM Design System:** sleek layout featuring a slim left icon rail with vertical sun/moon capsule theme switch, horizontal pill navigation, live connection indicators, status badges, floating 28px radius canvas card, and **both Light Mode and a Neutral Grey-Black Dark Mode** (strictly avoiding blue/navy tones).
+- **Comprehensive User Guide:** hands-on, step-by-step walkthrough covering all features in [USERGUIDE.md](file:///Users/shash/Downloads/DBMS/DataGit/USERGUIDE.md).
+- **Rich Seed Data & Diffs:** automated multi-branch e-commerce database seeder (`npm run seed`) creating 8 commits across 4 branches (`main`, `feature/analytics`, `feature/discounts`, `hotfix/pricing-adjustments`) with real schema modifications, column additions, row insertions, updates, and deletions, and 1-click comparison presets in the Diff Inspector.
 - **Snapshots and commits:** capture `public` tables, supported constraints, rows, non-constraint indexes, user triggers, table privileges, views, and standalone sequences; hash snapshots with SHA-256 and store them as local JSON files.
 - **Row and schema diffs:** compare snapshots and report inserts, updates, deletes, table/column/constraint changes, table metadata (indexes, triggers, privileges), views, and sequences.
 - **History and branches:** retrieve commit history, create branches, and track active branch heads and merge parents.

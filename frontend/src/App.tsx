@@ -5,6 +5,7 @@ import { Header } from './components/Header';
 import { ToastContainer } from './components/ToastContainer';
 import { SettingsModal } from './components/SettingsModal';
 import { HistoryTab } from './components/tabs/HistoryTab';
+import { SchemaTab } from './components/tabs/SchemaTab';
 import { SnapshotTab } from './components/tabs/SnapshotTab';
 import { BranchesTab } from './components/tabs/BranchesTab';
 import { DiffTab } from './components/tabs/DiffTab';
@@ -27,6 +28,7 @@ export const AppContent: React.FC = () => {
         <main className="app-main-canvas">
           <div className="canvas-inner-card">
             {activeTab === 'history' && <HistoryTab />}
+            {activeTab === 'schema' && <SchemaTab />}
             {activeTab === 'snapshot' && <SnapshotTab />}
             {activeTab === 'branches' && <BranchesTab />}
             {activeTab === 'diff' && <DiffTab />}

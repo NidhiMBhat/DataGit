@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   History,
+  Layers,
   Camera,
   GitBranch,
   GitCompare,
@@ -19,6 +20,7 @@ export const Sidebar: React.FC = () => {
 
   const navItems: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'history', label: 'Timeline & Commits', icon: <History size={18} /> },
+    { id: 'schema', label: 'Visual Database Schema', icon: <Layers size={18} /> },
     { id: 'snapshot', label: 'Create Snapshot', icon: <Camera size={18} /> },
     { id: 'branches', label: 'Branches', icon: <GitBranch size={18} /> },
     { id: 'diff', label: 'Diff Inspector', icon: <GitCompare size={18} /> },

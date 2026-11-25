@@ -17,9 +17,27 @@ def compare_snapshots(old_snapshot: dict[str, Any], new_snapshot: dict[str, Any]
         for change in diff_rows(old_table, new_table):
             row_changes.append({"table": table_name, **change})
 
+    schema_changes = diff_schema(old_snapshot, new_snapshot)
+    added_tables = [c.get("table") for c in schema_changes if c.get("operation") == "CREATE_TABLE"]
+    dropped_tables = [c.get("table") for c in schema_changes if c.get("operation") == "DROP_TABLE"]
+    altered_tables = sorted(list({
+        c.get("table") for c in schema_changes
+        if c.get("operation") not in ("CREATE_TABLE", "DROP_TABLE") and "table" in c
+    }))
+
+    summary = {
+        "tables_added": len(added_tables),
+        "tables_dropped": len(dropped_tables),
+        "tables_altered": len(altered_tables),
+        "rows_inserted": sum(1 for r in row_changes if r.get("operation") == "INSERT"),
+        "rows_deleted": sum(1 for r in row_changes if r.get("operation") == "DELETE"),
+        "rows_updated": sum(1 for r in row_changes if r.get("operation") == "UPDATE"),
+    }
+
     return {
-        "schema_changes": diff_schema(old_snapshot, new_snapshot),
+        "schema_changes": schema_changes,
         "row_changes": row_changes,
+        "summary": summary,
     }
 
 

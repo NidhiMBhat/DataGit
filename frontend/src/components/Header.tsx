@@ -19,6 +19,7 @@ export const Header: React.FC = () => {
 
   const navItems: { id: TabType; label: string }[] = [
     { id: 'history', label: 'Timeline' },
+    { id: 'schema', label: 'Schema' },
     { id: 'snapshot', label: 'Snapshot' },
     { id: 'branches', label: 'Branches' },
     { id: 'diff', label: 'Diff' },

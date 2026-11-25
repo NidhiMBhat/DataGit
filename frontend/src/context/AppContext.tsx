@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { Branch, Commit, AuthSettings } from '../types/api';
 import { apiRequest, ApiError, defaultSettings } from '../services/api';
 
-export type TabType = 'history' | 'snapshot' | 'branches' | 'diff' | 'merge' | 'benchmark' | 'rollback';
+export type TabType = 'history' | 'schema' | 'snapshot' | 'branches' | 'diff' | 'merge' | 'benchmark' | 'rollback';
 export type ThemeMode = 'light' | 'dark';
 
 export interface ToastItem {

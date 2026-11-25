@@ -204,10 +204,17 @@ def populate():
             ('SUMMER20', 20.00, 50.00, '2027-08-31'),
             ('BLACKFRIDAY', 30.00, 100.00, '2027-11-30'),
             ('WELCOME10', 10.00, 0.00, '2028-12-31');
+
+        -- Update customer loyalty on this branch
+        UPDATE customers SET loyalty_points = 2100, loyalty_tier = 'platinum' WHERE id = 1;
+
+        -- Insert a new flagship product on this branch
+        INSERT INTO products (sku, name, category_id, price, cost_price, stock_quantity, tags, attributes) VALUES
+            ('TECH-003', 'Ultra-Wide Curved Gaming Monitor 34"', 1, 699.00, 390.00, 25, ARRAY['display', 'ultrawide', '4k'], '{"refresh_rate": "144Hz", "panel": "IPS"}');
     """)
 
     c4 = create_commit(
-        message="Add coupon_discounts table and promotional discount codes",
+        message="Add coupon_discounts table, loyalty perks, and premium curved monitor",
         author="Promo Team"
     )
     print(f"  ✓ Commit #{c4} created on feature/discounts")
@@ -245,6 +252,9 @@ def populate():
             (1, 'page_view', '/products/TECH-001', '{"referrer": "google.com", "dwell_time_sec": 42}'),
             (1, 'add_to_cart', '/cart', '{"sku": "TECH-001", "quantity": 1}'),
             (2, 'search', '/search?q=coffee', '{"query": "coffee", "results_count": 8}');
+
+        -- Update product tags for search indexing
+        UPDATE products SET tags = ARRAY['wireless', 'audio', 'bluetooth', 'anc-pro'] WHERE sku = 'TECH-001';
     """)
 
     c5 = create_commit(
@@ -257,12 +267,20 @@ def populate():
     print("\n🔀 Step 6: Switching to 'main' and executing 3-way merge of 'feature/discounts'...")
     checkout_branch("main")
 
-    # Add a slight update to main to make the merge interesting (updating product stock)
+    # Update on main: modify stock, insert new outdoor category and customer, delete an order item
     run_sql("""
-        UPDATE products SET stock_quantity = 70 WHERE sku = 'TECH-001';
+        UPDATE products SET stock_quantity = 65, price = 229.99 WHERE sku = 'TECH-001';
+
+        INSERT INTO categories (name, slug, description) VALUES
+            ('Sports & Outdoors', 'sports-outdoors', 'Fitness gear and outdoor adventure apparel');
+
+        INSERT INTO customers (email, full_name, loyalty_tier, loyalty_points, address) VALUES
+            ('diana@example.com', 'Diana Prince', 'gold', 980, '{"city": "Metropolis", "state": "NY", "zip": "10001"}');
+
+        DELETE FROM order_items WHERE id = 4;
     """)
     c6 = create_commit(
-        message="Update stock levels after warehouse count",
+        message="Add Sports & Outdoors category, update stock pricing, and reconcile order items",
         author="Inventory Manager"
     )
     print(f"  ✓ Commit #{c6} created on main")
@@ -281,11 +299,17 @@ def populate():
     checkout_branch("hotfix/pricing-adjustments")
 
     run_sql("""
-        UPDATE products SET price = 119.99 WHERE sku = 'TECH-002';
         ALTER TABLE products ADD COLUMN discount_eligible BOOLEAN DEFAULT true;
+        ALTER TABLE customers ADD COLUMN phone_number VARCHAR(25);
+
+        UPDATE products SET price = 119.99, discount_eligible = false WHERE sku = 'TECH-002';
+        UPDATE customers SET phone_number = '+1-415-555-0199' WHERE id = 1;
+
+        INSERT INTO products (sku, name, category_id, price, cost_price, stock_quantity, tags, attributes, discount_eligible) VALUES
+            ('TECH-004', 'Ergonomic Vertical Mouse', 1, 59.95, 25.00, 90, ARRAY['mouse', 'ergonomic'], '{"dpi": 4000}', true);
     """)
     c7 = create_commit(
-        message="Hotfix: Adjust mechanical keyboard price and add discount_eligible column",
+        message="Hotfix: Add discount_eligible and phone_number columns, update pricing, and add vertical mouse",
         author="Pricing Specialist"
     )
     print(f"  ✓ Commit #{c7} created on hotfix/pricing-adjustments")

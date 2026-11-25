@@ -70,12 +70,90 @@ export interface TableRowDiff {
   updates?: RowUpdate[];
 }
 
+export interface DiffChangeItem {
+  operation: string;
+  table?: string;
+  kind?: string;
+  column?: string;
+  before?: unknown;
+  after?: unknown;
+  key?: Record<string, unknown>;
+  changed_columns?: string[];
+  [key: string]: unknown;
+}
+
+export interface DiffSummary {
+  tables_added: number;
+  tables_dropped: number;
+  tables_altered: number;
+  rows_inserted: number;
+  rows_deleted: number;
+  rows_updated: number;
+}
+
 export interface DiffResult {
+  from_commit_id?: number;
+  to_commit_id?: number;
+  schema_changes?: DiffChangeItem[];
+  row_changes?: DiffChangeItem[];
+  summary?: DiffSummary;
   schema_diff?: SchemaDiff;
   schema?: SchemaDiff;
   row_diff?: Record<string, TableRowDiff>;
   rows?: Record<string, TableRowDiff>;
   [key: string]: unknown;
+}
+
+export interface SchemaColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  default: string | null;
+  identity: string | null;
+  sequence?: string | null;
+  is_pk?: boolean;
+}
+
+export interface SchemaConstraint {
+  name: string;
+  type: string;
+  definition: string;
+  columns: string[];
+  referenced_table?: string;
+  referenced_schema?: string;
+  referenced_columns?: string[];
+}
+
+export interface ForeignKeyLink {
+  name?: string;
+  columns: string[];
+  referenced_table?: string;
+  referenced_columns?: string[];
+}
+
+export interface SchemaIndex {
+  name: string;
+  definition: string;
+}
+
+export interface TableSchemaInfo {
+  columns: SchemaColumn[];
+  constraints: SchemaConstraint[];
+  foreign_keys?: ForeignKeyLink[];
+  indexes: SchemaIndex[];
+  row_count: number;
+}
+
+export interface DatabaseSchemaResponse {
+  target: string;
+  commit_id?: number | null;
+  branch?: string | null;
+  tables: Record<string, TableSchemaInfo>;
+  views: Record<string, { definition: string; owner?: string }>;
+  sequences: Record<string, { last_value?: number; start_value?: number; increment_by?: number }>;
+  total_tables: number;
+  total_views: number;
+  total_sequences: number;
 }
 
 export interface MergeResponse {
