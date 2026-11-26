@@ -236,3 +236,106 @@ export interface AuthSettings {
   defaultAllowDirty: boolean;
   author: string;
 }
+
+export type ReportMode = 'activity' | 'data_schema' | 'merge_conflict';
+export type DateRangePreset = 'weekly' | 'monthly' | 'custom';
+
+export interface ReportFilters {
+  date_range: string;
+  start_date: string;
+  end_date: string;
+  branch: string | null;
+  branch_label: string;
+  table: string | null;
+  timezone: string;
+  workspace_id: string;
+}
+
+export interface CommitActivityPoint {
+  date: string;
+  count: number;
+  authors_count: number;
+}
+
+export interface AuthorDistributionItem {
+  author: string;
+  commits: number;
+}
+
+export interface TableRowChangeItem {
+  table: string;
+  inserts: number;
+  updates: number;
+  deletes: number;
+  total: number;
+}
+
+export interface DailyChangeItem {
+  date: string;
+  inserts: number;
+  updates: number;
+  deletes: number;
+  schema_changes: number;
+}
+
+export interface OutcomeBreakdownItem {
+  status: string;
+  count: number;
+  color?: string;
+}
+
+export interface DailyMergeItem {
+  date: string;
+  success: number;
+  conflict: number;
+  rejected: number;
+}
+
+export interface ReportChartSeries {
+  commit_activity?: CommitActivityPoint[];
+  author_distribution?: AuthorDistributionItem[];
+  table_row_changes?: TableRowChangeItem[];
+  daily_changes?: DailyChangeItem[];
+  outcome_breakdown?: OutcomeBreakdownItem[];
+  daily_merges?: DailyMergeItem[];
+}
+
+export interface ReportDetailRow {
+  commit_id?: number;
+  id?: string | number;
+  timestamp: string;
+  author?: string;
+  actor?: string;
+  message?: string;
+  parent_commits?: number[];
+  is_merge?: boolean;
+  tables_impacted_count?: number;
+  tables_impacted?: string[];
+  rows_changed?: number;
+  change_category?: 'DATA' | 'SCHEMA';
+  table?: string;
+  operation?: string;
+  details?: string;
+  source?: string;
+  target?: string;
+  outcome?: string;
+  merge_commit_id?: number | null;
+  conflict_summary?: string;
+  is_historical_reconstruction?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ReportResponse {
+  mode: ReportMode;
+  filters: ReportFilters;
+  summary: Record<string, number | string | null>;
+  chart_series: ReportChartSeries;
+  details: ReportDetailRow[];
+  coverage_notes: string[];
+}
+
+export interface ReportMetadata {
+  modes: ReportMode[];
+  date_ranges: DateRangePreset[];
+  merge_outcome_tracking_started_at: string;
+}

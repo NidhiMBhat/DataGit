@@ -6,6 +6,7 @@ import {
   GitBranch,
   GitCompare,
   GitMerge,
+  BarChart3,
   Gauge,
   RotateCcw,
   Sun,
@@ -25,6 +26,7 @@ export const Sidebar: React.FC = () => {
     { id: 'branches', label: 'Branches', icon: <GitBranch size={18} /> },
     { id: 'diff', label: 'Diff Inspector', icon: <GitCompare size={18} /> },
     { id: 'merge', label: '3-Way Merge', icon: <GitMerge size={18} /> },
+    { id: 'reports', label: 'Reports & Analytics', icon: <BarChart3 size={18} /> },
     { id: 'benchmark', label: 'Storage Benchmark', icon: <Gauge size={18} /> },
     { id: 'rollback', label: 'Time-Travel & Rollback', icon: <RotateCcw size={18} /> },
   ];

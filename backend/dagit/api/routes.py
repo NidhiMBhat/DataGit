@@ -1,9 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from dagit.api.security import DirtyWorkspaceError, verify_read_access, verify_write_access
 from dagit.db.connection import get_db_cursor
 from dagit.diff.diff_service import compare_commits, compare_snapshots
+from dagit.reports.merge_events import get_tracking_start_date
+from dagit.reports.report_service import (
+    generate_csv_report,
+    generate_pdf_report,
+    generate_report,
+)
 from dagit.versioning.branch import create_branch, list_branches
 from dagit.versioning.checkout import checkout_branch, checkout_commit
 from dagit.versioning.commit import create_commit
@@ -46,6 +52,8 @@ class MergeRequest(BaseModel):
     source_branch: str | None = None
     author: str = Field(default="DataGit", min_length=1, max_length=100)
     message: str | None = None
+    is_preview: bool = False
+    workspace_id: str = "default"
 
 
 class SyntheticWorkloadRequest(BaseModel):
@@ -239,11 +247,20 @@ def post_merge(request: MergeRequest):
     try:
         if request.source_branch is not None:
             commit_id = merge_branch(
-                request.source_branch, request.author, request.message
+                request.source_branch,
+                request.author,
+                request.message,
+                workspace_id=request.workspace_id,
+                is_preview=request.is_preview,
             )
         elif request.source_commit_id is not None:
             commit_id = merge_commits(
-                request.source_commit_id, request.author, request.message
+                request.source_commit_id,
+                request.author,
+                request.message,
+                source_branch=None,
+                workspace_id=request.workspace_id,
+                is_preview=request.is_preview,
             )
         else:
             raise HTTPException(
@@ -382,3 +399,106 @@ def post_demo_simulate(request: DemoSimulateRequest):
         return {**result, "workspace_status": status}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/reports", dependencies=[Depends(verify_read_access)])
+def read_report(
+    mode: str = Query("activity", pattern="^(activity|data_schema|merge_conflict)$"),
+    date_range: str = Query("monthly", pattern="^(weekly|monthly|custom)$"),
+    start_date: str | None = None,
+    end_date: str | None = None,
+    branch: str | None = None,
+    table: str | None = None,
+    timezone: str = "UTC",
+    workspace_id: str = "default",
+):
+    """Generate dynamic analytics report for activity, data/schema changes, or merge outcomes."""
+    try:
+        return generate_report(
+            mode=mode,
+            date_range=date_range,
+            start_date=start_date,
+            end_date=end_date,
+            branch=branch,
+            table=table,
+            workspace_id=workspace_id,
+            tz_label=timezone,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/reports/export/csv", dependencies=[Depends(verify_read_access)])
+def export_report_csv(
+    mode: str = Query("activity", pattern="^(activity|data_schema|merge_conflict)$"),
+    date_range: str = Query("monthly", pattern="^(weekly|monthly|custom)$"),
+    start_date: str | None = None,
+    end_date: str | None = None,
+    branch: str | None = None,
+    table: str | None = None,
+    timezone: str = "UTC",
+    workspace_id: str = "default",
+):
+    """Export the dynamic report as CSV reconciling with the dashboard query."""
+    try:
+        report_data = generate_report(
+            mode=mode,
+            date_range=date_range,
+            start_date=start_date,
+            end_date=end_date,
+            branch=branch,
+            table=table,
+            workspace_id=workspace_id,
+            tz_label=timezone,
+        )
+        csv_content, filename = generate_csv_report(report_data)
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/reports/export/pdf", dependencies=[Depends(verify_read_access)])
+def export_report_pdf(
+    mode: str = Query("activity", pattern="^(activity|data_schema|merge_conflict)$"),
+    date_range: str = Query("monthly", pattern="^(weekly|monthly|custom)$"),
+    start_date: str | None = None,
+    end_date: str | None = None,
+    branch: str | None = None,
+    table: str | None = None,
+    timezone: str = "UTC",
+    workspace_id: str = "default",
+):
+    """Export the dynamic report as PDF with active filters, summary totals, charts, and details."""
+    try:
+        report_data = generate_report(
+            mode=mode,
+            date_range=date_range,
+            start_date=start_date,
+            end_date=end_date,
+            branch=branch,
+            table=table,
+            workspace_id=workspace_id,
+            tz_label=timezone,
+        )
+        pdf_bytes, filename = generate_pdf_report(report_data)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/reports/meta", dependencies=[Depends(verify_read_access)])
+def read_reports_metadata():
+    """Retrieve metadata about report capabilities and historical tracking start date."""
+    return {
+        "modes": ["activity", "data_schema", "merge_conflict"],
+        "date_ranges": ["weekly", "monthly", "custom"],
+        "merge_outcome_tracking_started_at": get_tracking_start_date(),
+    }

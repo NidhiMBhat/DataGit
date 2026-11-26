@@ -11,6 +11,8 @@ _INTERNAL_TABLES = {
     "datagit_branches",
     "datagit_workspace",
     "datagit_commit_parents",
+    "datagit_merge_events",
+    "datagit_tracking_meta",
 }
 
 def init_storage():

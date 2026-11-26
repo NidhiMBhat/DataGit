@@ -3,6 +3,7 @@ from typing import Any
 
 from psycopg2 import sql
 from dagit.db.connection import get_db_cursor
+from dagit.reports.merge_events import record_merge_event
 from dagit.versioning.commit import record_commit_in_cursor
 from dagit.versioning.metadata import init_metadata_tables
 from dagit.versioning.restore import restore_snapshot_in_cursor
@@ -17,6 +18,8 @@ _INTERNAL_TABLES = (
     "datagit_branches",
     "datagit_workspace",
     "datagit_commit_parents",
+    "datagit_merge_events",
+    "datagit_tracking_meta",
 )
 _NAMED_COLLECTIONS = {
     "columns": "name",
@@ -456,112 +459,188 @@ def merge_commits(
     source_commit_id: int,
     author: str = "DataGit",
     message: str | None = None,
+    source_branch: str | None = None,
+    workspace_id: str = "default",
+    is_preview: bool = False,
 ) -> int:
     """Merge a commit into the active branch and atomically apply a conflict-free result."""
     init_metadata_tables()
-    with get_db_cursor() as cursor:
-        cursor.execute("""
-            SELECT w.active_branch, b.head_commit
-            FROM datagit_workspace w
-            LEFT JOIN datagit_branches b ON b.name = w.active_branch
-            WHERE w.singleton = TRUE;
-        """)
-        workspace = cursor.fetchone()
-        if workspace["active_branch"] is None or workspace["head_commit"] is None:
-            raise ValueError("Merging requires an active branch with a commit")
-        target_commit_id = workspace["head_commit"]
-        cursor.execute(
-            "SELECT state_id FROM datagit_commits WHERE commit_id = %s;",
-            (source_commit_id,),
-        )
-        source = cursor.fetchone()
-        if source is None:
-            raise ValueError(f"Unknown source commit ID: {source_commit_id}")
-        cursor.execute(
-            "SELECT state_id FROM datagit_commits WHERE commit_id = %s;",
-            (target_commit_id,),
-        )
-        target = cursor.fetchone()
-        if target_commit_id == source_commit_id:
-            raise ValueError("Cannot merge a commit into itself")
+    target_branch = None
+    target_commit_id = None
 
-        target_ancestors = _ancestor_depths(cursor, target_commit_id)
-        source_ancestors = _ancestor_depths(cursor, source_commit_id)
-        common = target_ancestors.keys() & source_ancestors.keys()
-        if not common:
-            raise ValueError("Commits do not have a common ancestor")
-        base_commit_id = min(
-            common,
-            key=lambda commit: (
-                target_ancestors[commit] + source_ancestors[commit],
-                -commit,
-            ),
-        )
-        cursor.execute(
-            "SELECT state_id FROM datagit_commits WHERE commit_id = %s;",
-            (base_commit_id,),
-        )
-        base = cursor.fetchone()
-
-    base_snapshot = load_snapshot_from_storage(base["state_id"])
-    target_snapshot = load_snapshot_from_storage(target["state_id"])
-    source_snapshot = load_snapshot_from_storage(source["state_id"])
-
-    result = merge_snapshots(base_snapshot, target_snapshot, source_snapshot)
-    if result["conflicts"]:
-        raise MergeConflictError(result["conflicts"])
-    merged_snapshot = result["snapshot"]
-
-    with get_db_cursor(commit=True) as cursor:
-        cursor.execute("""
-            SELECT w.active_branch, b.head_commit
-            FROM datagit_workspace w
-            LEFT JOIN datagit_branches b ON b.name = w.active_branch
-            WHERE w.singleton = TRUE
-            FOR UPDATE OF w;
-        """)
-        latest_workspace = cursor.fetchone()
-        if (
-            latest_workspace["active_branch"] != workspace["active_branch"]
-            or latest_workspace["head_commit"] != target_commit_id
-        ):
-            raise ValueError("Active branch changed while the merge was being prepared")
-
-        cursor.execute("""
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = 'public'
-              AND table_type = 'BASE TABLE'
-              AND table_name <> ALL(%s)
-            ORDER BY table_name;
-        """, (list(_INTERNAL_TABLES),))
-        for row in cursor.fetchall():
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                SELECT w.active_branch, b.head_commit
+                FROM datagit_workspace w
+                LEFT JOIN datagit_branches b ON b.name = w.active_branch
+                WHERE w.singleton = TRUE;
+            """)
+            workspace = cursor.fetchone()
+            if workspace["active_branch"] is None or workspace["head_commit"] is None:
+                raise ValueError("Merging requires an active branch with a commit")
+            target_branch = workspace["active_branch"]
+            target_commit_id = workspace["head_commit"]
             cursor.execute(
-                sql.SQL("LOCK TABLE {}.{} IN ACCESS EXCLUSIVE MODE").format(
-                    sql.Identifier("public"), sql.Identifier(row["table_name"])
+                "SELECT state_id FROM datagit_commits WHERE commit_id = %s;",
+                (source_commit_id,),
+            )
+            source = cursor.fetchone()
+            if source is None:
+                raise ValueError(f"Unknown source commit ID: {source_commit_id}")
+            cursor.execute(
+                "SELECT state_id FROM datagit_commits WHERE commit_id = %s;",
+                (target_commit_id,),
+            )
+            target = cursor.fetchone()
+            if target_commit_id == source_commit_id:
+                raise ValueError("Cannot merge a commit into itself")
+
+            target_ancestors = _ancestor_depths(cursor, target_commit_id)
+            source_ancestors = _ancestor_depths(cursor, source_commit_id)
+            common = target_ancestors.keys() & source_ancestors.keys()
+            if not common:
+                raise ValueError("Commits do not have a common ancestor")
+            base_commit_id = min(
+                common,
+                key=lambda commit: (
+                    target_ancestors[commit] + source_ancestors[commit],
+                    -commit,
+                ),
+            )
+            cursor.execute(
+                "SELECT state_id FROM datagit_commits WHERE commit_id = %s;",
+                (base_commit_id,),
+            )
+            base = cursor.fetchone()
+
+        base_snapshot = load_snapshot_from_storage(base["state_id"])
+        target_snapshot = load_snapshot_from_storage(target["state_id"])
+        source_snapshot = load_snapshot_from_storage(source["state_id"])
+
+        result = merge_snapshots(base_snapshot, target_snapshot, source_snapshot)
+        if result["conflicts"]:
+            if not is_preview:
+                record_merge_event(
+                    actor=author,
+                    source_commit_id=source_commit_id,
+                    target_commit_id=target_commit_id,
+                    outcome="conflict",
+                    source_branch=source_branch,
+                    target_branch=target_branch,
+                    conflict_details=result["conflicts"],
+                    workspace_id=workspace_id,
+                    is_preview=is_preview,
                 )
+            raise MergeConflictError(result["conflicts"])
+        merged_snapshot = result["snapshot"]
+
+        with get_db_cursor(commit=True) as cursor:
+            cursor.execute("""
+                SELECT w.active_branch, b.head_commit
+                FROM datagit_workspace w
+                LEFT JOIN datagit_branches b ON b.name = w.active_branch
+                WHERE w.singleton = TRUE
+                FOR UPDATE OF w;
+            """)
+            latest_workspace = cursor.fetchone()
+            if (
+                latest_workspace["active_branch"] != workspace["active_branch"]
+                or latest_workspace["head_commit"] != target_commit_id
+            ):
+                raise ValueError("Active branch changed while the merge was being prepared")
+
+            cursor.execute("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                  AND table_name <> ALL(%s)
+                ORDER BY table_name;
+            """, (list(_INTERNAL_TABLES),))
+            for row in cursor.fetchall():
+                cursor.execute(
+                    sql.SQL("LOCK TABLE {}.{} IN ACCESS EXCLUSIVE MODE").format(
+                        sql.Identifier("public"), sql.Identifier(row["table_name"])
+                    )
+                )
+            current_snapshot = generate_database_snapshot(cursor=cursor)
+            if compute_snapshot_hash(current_snapshot) != compute_snapshot_hash(target_snapshot):
+                raise ValueError(
+                    "Working database has uncommitted changes; commit or restore before merging"
+                )
+
+            restore_snapshot_in_cursor(cursor, merged_snapshot)
+            commit_id = record_commit_in_cursor(
+                cursor,
+                merged_snapshot,
+                message or f"Merge commit {source_commit_id}",
+                author,
+                parent_commit_id=target_commit_id,
+                second_parent_commit_id=source_commit_id,
             )
-        current_snapshot = generate_database_snapshot(cursor=cursor)
-        if compute_snapshot_hash(current_snapshot) != compute_snapshot_hash(target_snapshot):
-            raise ValueError(
-                "Working database has uncommitted changes; commit or restore before merging"
+
+        if not is_preview:
+            record_merge_event(
+                actor=author,
+                source_commit_id=source_commit_id,
+                target_commit_id=target_commit_id,
+                outcome="success",
+                source_branch=source_branch,
+                target_branch=target_branch,
+                merge_commit_id=commit_id,
+                workspace_id=workspace_id,
+                is_preview=is_preview,
             )
+        return commit_id
 
-        restore_snapshot_in_cursor(cursor, merged_snapshot)
-        return record_commit_in_cursor(
-            cursor,
-            merged_snapshot,
-            message or f"Merge commit {source_commit_id}",
-            author,
-            parent_commit_id=target_commit_id,
-            second_parent_commit_id=source_commit_id,
-        )
+    except MergeConflictError:
+        raise
+    except Exception as err:
+        if not is_preview:
+            record_merge_event(
+                actor=author,
+                source_commit_id=source_commit_id,
+                target_commit_id=target_commit_id,
+                outcome="rejected",
+                source_branch=source_branch,
+                target_branch=target_branch,
+                error_message=str(err),
+                workspace_id=workspace_id,
+                is_preview=is_preview,
+            )
+        raise
 
 
-def merge_branch(name: str, author: str = "DataGit", message: str | None = None) -> int:
+def merge_branch(
+    name: str,
+    author: str = "DataGit",
+    message: str | None = None,
+    workspace_id: str = "default",
+    is_preview: bool = False,
+) -> int:
     with get_db_cursor() as cursor:
         cursor.execute("SELECT head_commit FROM datagit_branches WHERE name = %s;", (name,))
         branch = cursor.fetchone()
     if branch is None or branch["head_commit"] is None:
-        raise ValueError(f"Branch {name!r} does not have a commit to merge")
-    return merge_commits(branch["head_commit"], author=author, message=message)
+        err = f"Branch {name!r} does not have a commit to merge"
+        if not is_preview:
+            record_merge_event(
+                actor=author,
+                source_commit_id=None,
+                target_commit_id=None,
+                outcome="rejected",
+                source_branch=name,
+                error_message=err,
+                workspace_id=workspace_id,
+                is_preview=is_preview,
+            )
+        raise ValueError(err)
+    return merge_commits(
+        branch["head_commit"],
+        author=author,
+        message=message,
+        source_branch=name,
+        workspace_id=workspace_id,
+        is_preview=is_preview,
+    )

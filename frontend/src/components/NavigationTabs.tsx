@@ -1,5 +1,5 @@
 import React from 'react';
-import { History, Camera, GitBranch, GitCompare, GitMerge, Gauge, RotateCcw } from 'lucide-react';
+import { History, Camera, GitBranch, GitCompare, GitMerge, Gauge, RotateCcw, BarChart3 } from 'lucide-react';
 import { useApp, TabType } from '../context/AppContext';
 
 export const NavigationTabs: React.FC = () => {
@@ -11,6 +11,7 @@ export const NavigationTabs: React.FC = () => {
     { id: 'branches', label: 'Branches', icon: <GitBranch size={16} /> },
     { id: 'diff', label: 'Diff Inspector', icon: <GitCompare size={16} /> },
     { id: 'merge', label: '3-Way Merge', icon: <GitMerge size={16} /> },
+    { id: 'reports', label: 'Reports & Analytics', icon: <BarChart3 size={16} /> },
     { id: 'benchmark', label: 'Storage Benchmark', icon: <Gauge size={16} /> },
     { id: 'rollback', label: 'Time-Travel & Rollback', icon: <RotateCcw size={16} /> },
   ];

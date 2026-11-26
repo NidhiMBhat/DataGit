@@ -13,6 +13,7 @@ import { DiffTab } from './components/tabs/DiffTab';
 import { MergeTab } from './components/tabs/MergeTab';
 import { BenchmarkTab } from './components/tabs/BenchmarkTab';
 import { RollbackTab } from './components/tabs/RollbackTab';
+import { ReportsTab } from './components/tabs/ReportsTab';
 
 export const AppContent: React.FC = () => {
   const { activeTab } = useApp();
@@ -34,6 +35,7 @@ export const AppContent: React.FC = () => {
             {activeTab === 'branches' && <BranchesTab />}
             {activeTab === 'diff' && <DiffTab />}
             {activeTab === 'merge' && <MergeTab />}
+            {activeTab === 'reports' && <ReportsTab />}
             {activeTab === 'benchmark' && <BenchmarkTab />}
             {activeTab === 'rollback' && <RollbackTab />}
           </div>

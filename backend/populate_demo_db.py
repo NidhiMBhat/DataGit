@@ -29,6 +29,8 @@ def run_sql(sql: str, params=None):
 def populate():
     print("🚀 Initializing fresh DataGit demo repository...")
     run_sql("""
+        DROP TABLE IF EXISTS datagit_merge_events CASCADE;
+        DROP TABLE IF EXISTS datagit_tracking_meta CASCADE;
         DROP TABLE IF EXISTS datagit_commit_parents CASCADE;
         DROP TABLE IF EXISTS datagit_workspace CASCADE;
         DROP TABLE IF EXISTS datagit_branches CASCADE;
