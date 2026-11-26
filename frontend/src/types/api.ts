@@ -339,3 +339,57 @@ export interface ReportMetadata {
   date_ranges: DateRangePreset[];
   merge_outcome_tracking_started_at: string;
 }
+
+export interface AssistantEvidenceItem {
+  commit_id: number;
+  parent_id: number | null;
+  timestamp: string;
+  author: string;
+  message: string;
+  impacted_tables: string[];
+  row_changes_summary: {
+    inserts: number;
+    updates: number;
+    deletes: number;
+    total: number;
+  };
+  schema_changes: Array<{
+    operation: string;
+    table: string;
+    column: string | null;
+    details: string;
+  }>;
+  diff_link: string;
+  relevance_score: number;
+}
+
+export interface AssistantAppliedFilters {
+  branch: string | null;
+  table: string | null;
+  date_range: string;
+  start_date: string | null;
+  end_date: string | null;
+  metric: string;
+}
+
+export interface AssistantAskResponse {
+  question: string;
+  question_type: 'exact_statistics' | 'evidence_discovery' | 'explanation';
+  answer: string;
+  applied_filters: AssistantAppliedFilters;
+  evidence: AssistantEvidenceItem[];
+  clarification_needed: string | null;
+  coverage_note: string | null;
+  status: string;
+}
+
+export interface AssistantSuggestionItem {
+  category: string;
+  question: string;
+  description: string;
+}
+
+export interface AssistantSuggestionsResponse {
+  suggestions: AssistantSuggestionItem[];
+}
+

@@ -10,6 +10,12 @@ import {
   Activity,
   Database,
   GitMerge,
+  Sparkles,
+  Search,
+  ArrowRight,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { apiRequest } from '../../services/api';
@@ -18,10 +24,14 @@ import {
   ReportMode,
   DateRangePreset,
   ReportDetailRow,
+  AssistantAskResponse,
+  AssistantSuggestionsResponse,
+  AssistantSuggestionItem,
+  AssistantAppliedFilters,
 } from '../../types/api';
 
 export const ReportsTab: React.FC = () => {
-  const { branches, settings, addToast } = useApp();
+  const { branches, settings, addToast, setActiveTab, setDiffPair } = useApp();
 
   const [mode, setMode] = useState<ReportMode>('activity');
   const [dateRange, setDateRange] = useState<DateRangePreset>('monthly');
@@ -37,6 +47,14 @@ export const ReportsTab: React.FC = () => {
   const [isExportingCsv, setIsExportingCsv] = useState<boolean>(false);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [searchDetail, setSearchDetail] = useState<string>('');
+
+  // Ask DataGit assistant state
+  const [askQuery, setAskQuery] = useState<string>('');
+  const [isAsking, setIsAsking] = useState<boolean>(false);
+  const [askResult, setAskResult] = useState<AssistantAskResponse | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<AssistantSuggestionItem[]>([]);
+  const [isAssistantExpanded, setIsAssistantExpanded] = useState<boolean>(true);
 
   const systemTimezone = useMemo(() => {
     try {
@@ -100,6 +118,154 @@ export const ReportsTab: React.FC = () => {
   useEffect(() => {
     fetchReport();
   }, [fetchReport]);
+
+  // Fetch suggestions for Ask DataGit on mount
+  useEffect(() => {
+    const fetchSuggestions = async () => {
+      try {
+        const res = await apiRequest<AssistantSuggestionsResponse>('/assistant/suggestions', {}, settings);
+        if (res && res.suggestions) {
+          setSuggestions(res.suggestions);
+        }
+      } catch {
+        // Fallback default suggestions
+        setSuggestions([
+          {
+            category: 'Exact statistics',
+            question: 'How many order rows were updated on main last month?',
+            description: 'Reconciles authoritative mutation counts against the reporting engine.',
+          },
+          {
+            category: 'Evidence discovery',
+            question: 'Which commits changed the orders schema last month?',
+            description: 'Locates relevant commits, DDL operations, and schema alterations.',
+          },
+          {
+            category: 'Explanation',
+            question: 'Which commits contributed most to the spike in order updates?',
+            description: 'Identifies mutation surges and isolates the driving commits.',
+          },
+        ]);
+      }
+    };
+    fetchSuggestions();
+  }, [settings]);
+
+  // Execute query against Ask DataGit
+  const handleAsk = useCallback(
+    async (questionText?: string) => {
+      const q = (questionText !== undefined ? questionText : askQuery).trim();
+      if (!q) return;
+      if (questionText !== undefined) {
+        setAskQuery(q);
+      }
+      setIsAsking(true);
+      setAskError(null);
+
+      try {
+        const payload = {
+          question: q,
+          context_filters: {
+            branch: selectedBranch || null,
+            table: selectedTable || null,
+            date_range: dateRange,
+            start_date: startDate || null,
+            end_date: endDate || null,
+            timezone: systemTimezone,
+          },
+        };
+
+        const res = await apiRequest<AssistantAskResponse>(
+          '/assistant/ask',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          settings
+        );
+        setAskResult(res);
+      } catch (err: unknown) {
+        const msg = (err as Error).message || 'Failed to query Ask DataGit assistant';
+        setAskError(msg);
+        addToast(msg, 'error');
+      } finally {
+        setIsAsking(false);
+      }
+    },
+    [askQuery, selectedBranch, selectedTable, dateRange, startDate, endDate, systemTimezone, settings, addToast]
+  );
+
+  // Apply assistant scope to Reports tab filters
+  const handleApplyScope = (filters: AssistantAppliedFilters) => {
+    if (filters.branch) {
+      setSelectedBranch(filters.branch);
+    } else {
+      setSelectedBranch('');
+    }
+    if (filters.table) {
+      setSelectedTable(filters.table);
+      setMode('data_schema');
+    }
+    if (filters.date_range && ['weekly', 'monthly', 'custom'].includes(filters.date_range)) {
+      setDateRange(filters.date_range as DateRangePreset);
+    }
+    if (filters.start_date) setStartDate(filters.start_date);
+    if (filters.end_date) setEndDate(filters.end_date);
+    if (filters.metric === 'merges') {
+      setMode('merge_conflict');
+    } else if (filters.metric === 'commits') {
+      setMode('activity');
+    }
+    addToast('Applied assistant scope to report filters', 'info');
+  };
+
+  // Click commit to open diff in Diff Inspector tab
+  const handleOpenDiff = (commitId: number, parentId: number | null) => {
+    setDiffPair({ from: parentId ?? commitId, to: commitId });
+    setActiveTab('diff');
+  };
+
+  // Helper to render formatted Markdown-like text safely
+  const renderFormattedAnswer = (text: string) => {
+    const lines = text.split('\n');
+    return (
+      <div className="ask-answer-body">
+        {lines.map((line, idx) => {
+          if (!line.trim()) {
+            return <div key={idx} style={{ height: '8px' }} />;
+          }
+          const parts = line.split(/(\*\*.*?\*\*|`.*?`)/g);
+          return (
+            <p key={idx} style={{ margin: '4px 0' }}>
+              {parts.map((part, pIdx) => {
+                if (part.startsWith('**') && part.endsWith('**')) {
+                  return <strong key={pIdx}>{part.slice(2, -2)}</strong>;
+                }
+                if (part.startsWith('`') && part.endsWith('`')) {
+                  return (
+                    <code
+                      key={pIdx}
+                      className="font-mono"
+                      style={{
+                        backgroundColor: 'var(--bg-card)',
+                        padding: '2px 5px',
+                        borderRadius: '4px',
+                        fontSize: '0.8125rem',
+                      }}
+                    >
+                      {part.slice(1, -1)}
+                    </code>
+                  );
+                }
+                return part;
+              })}
+            </p>
+          );
+        })}
+      </div>
+    );
+  };
 
   // Export handlers
   const handleExportCsv = async () => {
@@ -256,6 +422,226 @@ export const ReportsTab: React.FC = () => {
             <span>{isExportingPdf ? 'Generating PDF...' : 'Export PDF'}</span>
           </button>
         </div>
+      </div>
+
+      {/* Ask DataGit RAG Assistant Panel */}
+      <div className="card ask-datagit-card">
+        <div className="ask-datagit-header">
+          <div className="ask-datagit-title-group">
+            <h3 className="ask-datagit-title">
+              <Sparkles size={18} color="#6366f1" />
+              <span>Ask DataGit</span>
+            </h3>
+            <span className="ask-datagit-badge">Read-Only RAG Assistant</span>
+            <p className="ask-datagit-subtitle">
+              Natural language repository intelligence: authoritative statistics, schema discovery, and grounded change explanations.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setIsAssistantExpanded(!isAssistantExpanded)}
+            title={isAssistantExpanded ? 'Collapse panel' : 'Expand panel'}
+          >
+            {isAssistantExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <span>{isAssistantExpanded ? 'Collapse' : 'Expand'}</span>
+          </button>
+        </div>
+
+        {isAssistantExpanded && (
+          <div>
+            {/* Search Input Form */}
+            <form
+              className="ask-datagit-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAsk();
+              }}
+            >
+              <div className="ask-input-wrapper">
+                <div className="ask-input-box">
+                  <Search size={16} className="ask-input-icon" />
+                  <input
+                    type="text"
+                    value={askQuery}
+                    onChange={(e) => setAskQuery(e.target.value)}
+                    placeholder="Ask a question (e.g., How many order rows were updated on main last month?)"
+                    disabled={isAsking}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={isAsking || !askQuery.trim()}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Sparkles size={15} className={isAsking ? 'spin' : ''} />
+                  <span>{isAsking ? 'Analyzing...' : 'Ask DataGit'}</span>
+                </button>
+              </div>
+            </form>
+
+            {/* Suggested Questions */}
+            <div className="ask-suggestions-container">
+              <span className="ask-suggestions-label">Suggested Questions:</span>
+              <div className="ask-suggestions-grid">
+                {suggestions.map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="ask-suggestion-btn"
+                    onClick={() => handleAsk(item.question)}
+                    disabled={isAsking}
+                    title={item.description}
+                  >
+                    <span className="ask-suggestion-cat">{item.category}:</span>
+                    <span>&ldquo;{item.question}&rdquo;</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Active inherited context preview */}
+            <div className="text-secondary" style={{ fontSize: '0.75rem', marginBottom: '8px' }}>
+              <span style={{ color: 'var(--text-muted)' }}>Inherited Report Defaults: </span>
+              <span>Branch: <strong>{selectedBranch || 'All (reachable)'}</strong></span>
+              <span className="mx-2">•</span>
+              <span>Table: <strong>{selectedTable || 'All'}</strong></span>
+              <span className="mx-2">•</span>
+              <span>Time Window: <strong>{dateRange}</strong></span>
+              <span className="mx-2">•</span>
+              <span>Timezone: <strong>{systemTimezone}</strong></span>
+            </div>
+
+            {/* Error Message */}
+            {askError && (
+              <div className="alert alert-danger mt-2" style={{ fontSize: '0.8125rem' }}>
+                <AlertTriangle size={15} className="mr-2 inline" />
+                {askError}
+              </div>
+            )}
+
+            {/* Assistant Results */}
+            {askResult && (
+              <div className="ask-result-panel">
+                {/* Ambiguity clarification banner */}
+                {askResult.clarification_needed && (
+                  <div className="ask-clarification-box">
+                    <AlertTriangle size={16} color="#f59e0b" />
+                    <span><strong>Ambiguity Detected:</strong> {askResult.clarification_needed}</span>
+                  </div>
+                )}
+
+                {/* Scope Bar */}
+                <div className="ask-scope-row">
+                  <div className="ask-scope-chips">
+                    <span className="ask-scope-chip" style={{ borderColor: '#6366f1', color: '#6366f1' }}>
+                      Type: <strong>{askResult.question_type.replace('_', ' ').toUpperCase()}</strong>
+                    </span>
+                    <span className="ask-scope-chip">
+                      Branch: <strong>{askResult.applied_filters.branch || 'All Reachable'}</strong>
+                    </span>
+                    <span className="ask-scope-chip">
+                      Table: <strong>{askResult.applied_filters.table || 'All'}</strong>
+                    </span>
+                    <span className="ask-scope-chip">
+                      Window: <strong>{askResult.applied_filters.date_range}</strong>
+                    </span>
+                    {askResult.applied_filters.metric !== 'all' && (
+                      <span className="ask-scope-chip">
+                        Metric: <strong>{askResult.applied_filters.metric}</strong>
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="ask-apply-scope-btn"
+                    onClick={() => handleApplyScope(askResult.applied_filters)}
+                    title="Update Reports dashboard filters to match this question scope"
+                  >
+                    <span>Apply Scope to Reports</span>
+                    <ArrowRight size={13} />
+                  </button>
+                </div>
+
+                {/* Formatted Answer */}
+                {renderFormattedAnswer(askResult.answer)}
+
+                {/* Evidence Citations */}
+                {askResult.evidence && askResult.evidence.length > 0 && (
+                  <div className="ask-evidence-section">
+                    <div className="ask-evidence-header">
+                      <CheckCircle2 size={15} color="#10b981" />
+                      <span>Verified Evidence ({askResult.evidence.length} commit{askResult.evidence.length > 1 ? 's' : ''}):</span>
+                    </div>
+
+                    <div className="ask-evidence-cards">
+                      {askResult.evidence.map((ev) => (
+                        <div key={ev.commit_id} className="ask-evidence-card">
+                          <div className="ask-evidence-left">
+                            <button
+                              type="button"
+                              className="ask-commit-pill"
+                              onClick={() => handleOpenDiff(ev.commit_id, ev.parent_id)}
+                              title="Click to view diff in Diff Inspector"
+                            >
+                              <span>#{ev.commit_id}</span>
+                              <ExternalLink size={11} />
+                            </button>
+
+                            <span className="ask-evidence-msg">&ldquo;{ev.message}&rdquo;</span>
+
+                            <span className="ask-evidence-meta">
+                              by <strong>{ev.author}</strong> on {ev.timestamp.slice(0, 10)}
+                            </span>
+                          </div>
+
+                          <div className="ask-evidence-stats">
+                            {ev.row_changes_summary.inserts > 0 && (
+                              <span className="ask-stat-badge ins">+{ev.row_changes_summary.inserts}</span>
+                            )}
+                            {ev.row_changes_summary.updates > 0 && (
+                              <span className="ask-stat-badge upd">~{ev.row_changes_summary.updates}</span>
+                            )}
+                            {ev.row_changes_summary.deletes > 0 && (
+                              <span className="ask-stat-badge del">-{ev.row_changes_summary.deletes}</span>
+                            )}
+                            {ev.schema_changes.length > 0 && (
+                              <span
+                                className="ask-stat-badge ddl"
+                                title={ev.schema_changes.map((s) => `${s.operation} ${s.table}`).join(', ')}
+                              >
+                                DDL ({ev.schema_changes.length})
+                              </span>
+                            )}
+
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ padding: '3px 8px', fontSize: '0.6875rem' }}
+                              onClick={() => handleOpenDiff(ev.commit_id, ev.parent_id)}
+                            >
+                              Inspect Diff
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Historical Coverage Note */}
+                {askResult.coverage_note && (
+                  <div className="ask-coverage-box">
+                    <Info size={14} color="#3b82f6" />
+                    <span>{askResult.coverage_note}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Filter Controls Card */}

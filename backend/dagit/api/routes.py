@@ -1,7 +1,9 @@
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from dagit.api.security import DirtyWorkspaceError, verify_read_access, verify_write_access
+from dagit.assistant.assistant_service import ask_datagit, get_suggested_questions
 from dagit.db.connection import get_db_cursor
 from dagit.diff.diff_service import compare_commits, compare_snapshots
 from dagit.reports.merge_events import get_tracking_start_date
@@ -502,3 +504,30 @@ def read_reports_metadata():
         "date_ranges": ["weekly", "monthly", "custom"],
         "merge_outcome_tracking_started_at": get_tracking_start_date(),
     }
+
+
+class AssistantAskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    context_filters: dict[str, Any] | None = None
+    workspace_id: str = "default"
+    timezone: str = "UTC"
+
+
+@router.post("/assistant/ask", dependencies=[Depends(verify_read_access)])
+def post_assistant_ask(request: AssistantAskRequest):
+    """Ask DataGit: Read-only RAG assistant for repository statistics, evidence, and explanations."""
+    try:
+        return ask_datagit(
+            question=request.question,
+            context_filters=request.context_filters,
+            workspace_id=request.workspace_id,
+            tz_label=request.timezone,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/assistant/suggestions", dependencies=[Depends(verify_read_access)])
+def read_assistant_suggestions():
+    """Return categorized suggested questions for Ask DataGit."""
+    return {"suggestions": get_suggested_questions()}

@@ -15,7 +15,7 @@ from dagit.versioning.storage import load_snapshot_from_storage
 
 
 # In-memory diff cache to prevent re-computing diffs for immutable commit states
-_COMMIT_DIFF_CACHE: dict[int, dict[str, Any]] = {}
+_COMMIT_DIFF_CACHE: dict[tuple[int, str], dict[str, Any]] = {}
 
 
 def get_reachable_commit_ids(branch_name: str) -> set[int]:
@@ -50,8 +50,10 @@ def get_commit_diff(commit: dict[str, Any]) -> dict[str, Any]:
     so all its initial tables and rows are accounted as net creations/inserts.
     """
     cid = commit["commit_id"]
-    if cid in _COMMIT_DIFF_CACHE:
-        return _COMMIT_DIFF_CACHE[cid]
+    state_id = commit.get("state_id", "")
+    cache_key = (cid, state_id)
+    if cache_key in _COMMIT_DIFF_CACHE:
+        return _COMMIT_DIFF_CACHE[cache_key]
 
     parents = commit.get("parents") or []
     if parents:
@@ -64,7 +66,7 @@ def get_commit_diff(commit: dict[str, Any]) -> dict[str, Any]:
 
     new_snapshot = load_snapshot_from_storage(commit["state_id"])
     diff_res = compare_snapshots(old_snapshot, new_snapshot)
-    _COMMIT_DIFF_CACHE[cid] = diff_res
+    _COMMIT_DIFF_CACHE[cache_key] = diff_res
     return diff_res
 
 
