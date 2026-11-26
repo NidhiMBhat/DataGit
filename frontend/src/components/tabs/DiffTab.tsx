@@ -15,7 +15,16 @@ import { apiRequest } from '../../services/api';
 import { DiffResult, DiffChangeItem } from '../../types/api';
 
 export const DiffTab: React.FC = () => {
-  const { history, currentHead, diffPair, setDiffPair, settings, addToast } = useApp();
+  const {
+    history,
+    currentHead,
+    diffPair,
+    setDiffPair,
+    settings,
+    addToast,
+    isWorkspaceDirty,
+    workspaceStatus,
+  } = useApp();
 
   const [fromCommit, setFromCommit] = useState<string>(
     diffPair.from !== '' ? String(diffPair.from) : '6'
@@ -93,6 +102,19 @@ export const DiffTab: React.FC = () => {
     handleRunDiff(f, t);
   };
 
+  const handleShowUncommittedDiff = () => {
+    if (workspaceStatus) {
+      setDiffResult({
+        schema_changes: workspaceStatus.schema_changes || [],
+        row_changes: workspaceStatus.row_changes || [],
+        summary: workspaceStatus.summary,
+      });
+      setFromCommit(String(currentHead ?? 'HEAD'));
+      setToCommit('Working DB');
+      addToast('Showing live uncommitted changes in PostgreSQL vs HEAD', 'info');
+    }
+  };
+
   // Normalize schema and row changes from both new format and fallback format
   const schemaChanges: DiffChangeItem[] = diffResult?.schema_changes || [];
   const rowChanges: DiffChangeItem[] = diffResult?.row_changes || [];
@@ -147,6 +169,15 @@ export const DiffTab: React.FC = () => {
           <Sparkles size={14} className="text-accent inline-block mr-1" />
           Quick Presets:
         </span>
+        {isWorkspaceDirty && (
+          <button
+            className="pill-preset-btn uncommitted-preset"
+            onClick={handleShowUncommittedDiff}
+            title="Inspect live uncommitted changes in PostgreSQL vs HEAD"
+          >
+            ⚡ Uncommitted Changes vs HEAD ({workspaceStatus?.summary?.rows_updated ? `~${workspaceStatus.summary.rows_updated} ` : ''}{workspaceStatus?.summary?.rows_inserted ? `+${workspaceStatus.summary.rows_inserted} ` : ''})
+          </button>
+        )}
         <button
           className="pill-preset-btn"
           onClick={() => handlePresetSelect(6, 7)}

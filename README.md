@@ -99,6 +99,7 @@ DataGit features a full stack architecture combining a FastAPI PostgreSQL engine
 - **Storage & Performance Benchmark Dashboard:** run multi-iteration benchmarks comparing JSONB Full Snapshots, Delta persistence chains, and Shared Tables against existing commits or configurable synthetic workloads; visualizes payload sizes, relation/TOAST overheads (`pg_total_relation_size`), write/read/reconstruction timings, SHA-256 integrity verification, and storage recommendations.
 - **Time-Travel & Rollback Station:** atomically revert the live PostgreSQL database to any historical snapshot state with transactional safety guarantees and uncommitted workspace safeguards (`allow_dirty`).
 - **Auth & Operational Safeguards Modal:** configure `X-API-Key` or Bearer tokens, view read-only mode warnings, and manage default workspace protection settings directly in the UI.
+- **Live Demo Playground & Instant Change Detection:** simulate live PostgreSQL manipulations (Flash Sales, Customer Orders, Schema Migrations, or custom SQL) via the UI or `npm run demo:live`; the interface automatically detects uncommitted changes, alerts with floating live banners, inspects uncommitted diffs vs HEAD, and pre-fills commit snapshots.
 - **Light & Neutral Grey-Black Dark Modes:** sleek UI inspired by RonDesignLab / Sugar CRM with slim icon rail, horizontal pill navigation, and strict neutral grey-black dark mode (no blue/navy tint).
 
 > 📖 **Looking for a step-by-step walkthrough of all features?** Check out [USERGUIDE.md](file:///Users/shash/Downloads/DBMS/DataGit/USERGUIDE.md)!

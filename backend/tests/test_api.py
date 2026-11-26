@@ -17,6 +17,9 @@ def test_api_exposes_backend_versioning_routes():
     assert "/api/merge" in paths
     assert "/api/rollback" in paths
     assert "/api/storage/benchmark" in paths
+    assert "/api/schema" in paths
+    assert "/api/workspace/status" in paths
+    assert "/api/demo/simulate" in paths
 
 
 def test_api_enforces_api_keys_and_role_permissions(monkeypatch):

@@ -2,14 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from dagit.api.security import DirtyWorkspaceError, verify_read_access, verify_write_access
-from dagit.diff.diff_service import compare_commits
+from dagit.db.connection import get_db_cursor
+from dagit.diff.diff_service import compare_commits, compare_snapshots
 from dagit.versioning.branch import create_branch, list_branches
 from dagit.versioning.checkout import checkout_branch, checkout_commit
 from dagit.versioning.commit import create_commit
+from dagit.versioning.demo_scenarios import DEMO_SCENARIOS, execute_demo_scenario
 from dagit.versioning.history import get_commit, get_history
 from dagit.versioning.merge import MergeConflictError, merge_branch, merge_commits
+from dagit.versioning.metadata import init_metadata_tables
 from dagit.versioning.rollback import rollback
-from dagit.versioning.snapshot import generate_database_snapshot
+from dagit.versioning.snapshot import compute_snapshot_hash, generate_database_snapshot
 from dagit.versioning.storage import load_snapshot_from_storage
 from dagit.versioning.storage_benchmark import (
     benchmark_commits,
@@ -56,6 +59,11 @@ class StorageBenchmarkRequest(BaseModel):
     commit_ids: list[int] | None = Field(default=None, min_length=1, max_length=100)
     iterations: int = Field(default=1, ge=1, le=20)
     synthetic_workload: SyntheticWorkloadRequest | None = None
+
+
+class DemoSimulateRequest(BaseModel):
+    scenario: str = Field(default="flash_sale")
+    custom_sql: str | None = None
 
 
 @router.post("/commits", status_code=201, dependencies=[Depends(verify_write_access)])
@@ -271,5 +279,106 @@ def post_storage_benchmark(request: StorageBenchmarkRequest):
         )
         result = benchmark_snapshots(snapshots, iterations=request.iterations)
         return {"synthetic_workload": workload.model_dump(), **result}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/workspace/status", dependencies=[Depends(verify_read_access)])
+def read_workspace_status():
+    """Detect if uncommitted changes exist in PostgreSQL compared to active branch HEAD."""
+    init_metadata_tables()
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            SELECT w.active_branch, w.detached_commit, b.head_commit
+            FROM datagit_workspace w
+            LEFT JOIN datagit_branches b ON b.name = w.active_branch
+            WHERE w.singleton = TRUE;
+        """)
+        workspace = cursor.fetchone()
+        current_head = (
+            workspace["head_commit"]
+            if workspace and workspace["active_branch"] is not None
+            else (workspace["detached_commit"] if workspace else None)
+        )
+        active_branch = workspace["active_branch"] if workspace else None
+
+        if current_head is None:
+            return {
+                "is_dirty": False,
+                "current_head": None,
+                "active_branch": active_branch,
+                "summary": None,
+                "schema_changes": [],
+                "row_changes": [],
+            }
+
+        cursor.execute(
+            "SELECT state_id FROM datagit_commits WHERE commit_id = %s;",
+            (current_head,),
+        )
+        head_row = cursor.fetchone()
+        if head_row is None:
+            return {
+                "is_dirty": False,
+                "current_head": current_head,
+                "active_branch": active_branch,
+                "summary": None,
+                "schema_changes": [],
+                "row_changes": [],
+            }
+
+        head_snapshot = load_snapshot_from_storage(head_row["state_id"])
+        current_snapshot = generate_database_snapshot(cursor=cursor)
+        import json
+        current_snapshot_norm = json.loads(json.dumps(current_snapshot, default=str))
+
+        diff_res = compare_snapshots(head_snapshot, current_snapshot_norm)
+        is_dirty = bool(
+            (diff_res.get("schema_changes") and len(diff_res["schema_changes"]) > 0) or
+            (diff_res.get("row_changes") and len(diff_res["row_changes"]) > 0)
+        )
+        head_hash = compute_snapshot_hash(head_snapshot)
+        current_hash = compute_snapshot_hash(current_snapshot_norm)
+
+        return {
+            "is_dirty": is_dirty,
+            "current_head": current_head,
+            "active_branch": active_branch,
+            "head_hash": head_hash,
+            "current_hash": current_hash,
+            "summary": diff_res["summary"] if diff_res else {
+                "tables_added": 0, "tables_dropped": 0, "tables_altered": 0,
+                "rows_inserted": 0, "rows_deleted": 0, "rows_updated": 0,
+            },
+            "schema_changes": diff_res["schema_changes"] if diff_res else [],
+            "row_changes": diff_res["row_changes"] if diff_res else [],
+        }
+
+
+@router.get("/demo/scenarios", dependencies=[Depends(verify_read_access)])
+def read_demo_scenarios():
+    """List available e-commerce database manipulation scenarios for live demonstrations."""
+    scenarios = []
+    for key, item in DEMO_SCENARIOS.items():
+        scenarios.append({
+            "key": key,
+            "title": item["title"],
+            "description": item["description"],
+            "suggested_commit_message": item["suggested_commit_message"],
+            "sql": item["sql"].strip(),
+        })
+    return {
+        "scenarios": scenarios,
+        "can_reset": True,
+    }
+
+
+@router.post("/demo/simulate", dependencies=[Depends(verify_write_access)])
+def post_demo_simulate(request: DemoSimulateRequest):
+    """Execute a live demo manipulation scenario or custom SQL on PostgreSQL."""
+    try:
+        result = execute_demo_scenario(request.scenario, custom_sql=request.custom_sql)
+        status = read_workspace_status()
+        return {**result, "workspace_status": status}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

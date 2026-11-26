@@ -57,23 +57,41 @@ def diff_schema(old_snapshot: dict[str, Any], new_snapshot: dict[str, Any]) -> l
             changes.append({"operation": "ADD_COLUMN", "table": table_name, "column": name,
                             "after": new_columns[name]})
         for name in sorted(old_columns.keys() & new_columns.keys()):
-            if old_columns[name] != new_columns[name]:
+            old_col = old_columns[name]
+            new_col = new_columns[name]
+            if old_col != new_col:
+                both_auto = (
+                    bool(old_col.get("identity") or (old_col.get("sequence") and str(old_col.get("default", "")).startswith("nextval("))) and
+                    bool(new_col.get("identity") or (new_col.get("sequence") and str(new_col.get("default", "")).startswith("nextval(")))
+                )
+                same_type = (old_col.get("type") == new_col.get("type"))
+                same_null = (old_col.get("nullable") == new_col.get("nullable"))
+                if both_auto and same_type and same_null:
+                    continue
+
                 changes.append({"operation": "ALTER_COLUMN", "table": table_name, "column": name,
-                                "before": old_columns[name], "after": new_columns[name]})
+                                "before": old_col, "after": new_col})
 
         constraint_fields = (
             ("constraints",)
             if "constraints" in old_table or "constraints" in new_table
             else _CONSTRAINTS
         )
+        def _sort_item(item: Any) -> tuple[str, str]:
+            if isinstance(item, dict):
+                return (str(item.get("name") or ""), str(item))
+            return (str(item), str(item))
+
         for constraint in constraint_fields:
-            old_value, new_value = old_table.get(constraint, []), new_table.get(constraint, [])
+            old_value = sorted(old_table.get(constraint, []), key=_sort_item)
+            new_value = sorted(new_table.get(constraint, []), key=_sort_item)
             if old_value != new_value:
                 changes.append({"operation": "ALTER_CONSTRAINT", "table": table_name,
                                 "constraint": constraint, "before": old_value, "after": new_value})
 
         for field in _TABLE_METADATA:
-            old_value, new_value = old_table.get(field, []), new_table.get(field, [])
+            old_value = sorted(old_table.get(field, []), key=_sort_item)
+            new_value = sorted(new_table.get(field, []), key=_sort_item)
             if old_value != new_value:
                 changes.append({
                     "operation": "ALTER_TABLE_METADATA",

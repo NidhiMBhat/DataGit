@@ -1,5 +1,14 @@
 import React from 'react';
-import { Database, GitBranch, RefreshCw, Settings, ShieldAlert } from 'lucide-react';
+import {
+  Database,
+  GitBranch,
+  RefreshCw,
+  Settings,
+  ShieldAlert,
+  Zap,
+  ArrowRight,
+  Camera
+} from 'lucide-react';
 import { useApp, TabType } from '../context/AppContext';
 
 export const Header: React.FC = () => {
@@ -15,6 +24,9 @@ export const Header: React.FC = () => {
     refreshState,
     addToast,
     settings,
+    isWorkspaceDirty,
+    workspaceStatus,
+    setIsDemoModalOpen,
   } = useApp();
 
   const navItems: { id: TabType; label: string }[] = [
@@ -69,16 +81,42 @@ export const Header: React.FC = () => {
 
         {/* Right: Status Pills & Action Icons */}
         <div className="header-actions-group">
+          {/* Live Demo Playground Trigger Button */}
+          <button
+            onClick={() => setIsDemoModalOpen(true)}
+            className="header-demo-btn"
+            title="Open Live Database Playground (Simulate PostgreSQL Changes)"
+          >
+            <Zap size={14} className="text-amber-400" />
+            <span>Live Demo</span>
+          </button>
+
           {/* Active Branch Pill */}
           <div className="header-badge-pill" title="Active Working Branch">
             <GitBranch size={13} className="text-accent" />
             <span className="badge-text">{activeBranch || 'Detached'}</span>
           </div>
 
+          {/* Working Workspace Status Pill */}
+          <div
+            className={`header-badge-pill cursor-pointer ${isWorkspaceDirty ? 'dirty-pill' : ''}`}
+            title={
+              isWorkspaceDirty
+                ? 'Uncommitted changes detected in PostgreSQL - click to inspect'
+                : 'Workspace in sync with HEAD'
+            }
+            onClick={() => setIsDemoModalOpen(true)}
+          >
+            <span className={`badge-dot ${isWorkspaceDirty ? 'dirty' : 'clean'}`} />
+            <span className={`badge-text font-mono ${isWorkspaceDirty ? 'text-amber-400 font-bold' : ''}`}>
+              {isWorkspaceDirty ? 'Dirty DB' : 'Clean'}
+            </span>
+          </div>
+
           {/* Live Backend Connection Pill */}
           <div className="header-badge-pill" title={isOnline ? "Backend Live (Port 8000)" : "Backend Disconnected"}>
             <span className={`badge-dot ${isOnline ? 'online' : 'offline'}`} />
-            <span className="badge-text font-mono">{isOnline ? 'Online' : 'Offline'}</span>
+            <span className="badge-text font-mono">{isOnline ? 'Live' : 'Offline'}</span>
           </div>
 
           {/* HEAD Commit Pill */}
@@ -115,6 +153,48 @@ export const Header: React.FC = () => {
           </div>
         </div>
       </header>
+
+      {/* Uncommitted Live Changes Banner */}
+      {isWorkspaceDirty && (
+        <div className="uncommitted-live-banner">
+          <div className="banner-content">
+            <div className="banner-left">
+              <Zap size={16} className="text-amber-400 inline mr-2" />
+              <strong>Live PostgreSQL Changes Detected:</strong>{' '}
+              <span>
+                {workspaceStatus?.summary?.rows_updated ? `~${workspaceStatus.summary.rows_updated} rows updated ` : ''}
+                {workspaceStatus?.summary?.rows_inserted ? `+${workspaceStatus.summary.rows_inserted} rows inserted ` : ''}
+                {workspaceStatus?.summary?.rows_deleted ? `-${workspaceStatus.summary.rows_deleted} rows deleted ` : ''}
+                {workspaceStatus?.summary?.tables_altered ? `~${workspaceStatus.summary.tables_altered} tables altered ` : ''}
+                {workspaceStatus?.summary?.tables_added ? `+${workspaceStatus.summary.tables_added} tables added ` : ''}
+              </span>
+            </div>
+            <div className="banner-actions">
+              <button
+                className="banner-action-btn secondary"
+                onClick={() => setActiveTab('diff')}
+              >
+                <span>Inspect in Diff</span>
+                <ArrowRight size={13} />
+              </button>
+              <button
+                className="banner-action-btn primary"
+                onClick={() => setActiveTab('snapshot')}
+              >
+                <Camera size={13} />
+                <span>Commit Now</span>
+              </button>
+              <button
+                className="banner-action-btn icon"
+                onClick={() => setIsDemoModalOpen(true)}
+                title="Open Live Playground"
+              >
+                <Zap size={13} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {safeguardsActive && (
         <div className="safeguards-banner">

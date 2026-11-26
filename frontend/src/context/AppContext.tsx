@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Branch, Commit, AuthSettings } from '../types/api';
+import { Branch, Commit, AuthSettings, WorkspaceStatus, DemoSimulateResult } from '../types/api';
 import { apiRequest, ApiError, defaultSettings } from '../services/api';
 
 export type TabType = 'history' | 'schema' | 'snapshot' | 'branches' | 'diff' | 'merge' | 'benchmark' | 'rollback';
@@ -34,6 +34,14 @@ interface AppContextType {
   removeToast: (id: string) => void;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (open: boolean) => void;
+  workspaceStatus: WorkspaceStatus | null;
+  isWorkspaceDirty: boolean;
+  checkWorkspaceStatus: () => Promise<WorkspaceStatus | null>;
+  isDemoModalOpen: boolean;
+  setIsDemoModalOpen: (open: boolean) => void;
+  suggestedCommitMessage: string;
+  setSuggestedCommitMessage: (msg: string) => void;
+  executeScenario: (scenario: string, customSql?: string) => Promise<DemoSimulateResult>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -54,6 +62,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [diffPair, setDiffPair] = useState<{ from: number | ''; to: number | '' }>({ from: '', to: '' });
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [workspaceStatus, setWorkspaceStatus] = useState<WorkspaceStatus | null>(null);
+  const [isWorkspaceDirty, setIsWorkspaceDirty] = useState<boolean>(false);
+  const [isDemoModalOpen, setIsDemoModalOpen] = useState<boolean>(false);
+  const [suggestedCommitMessage, setSuggestedCommitMessage] = useState<string>('');
 
   const setTheme = useCallback((newTheme: ThemeMode) => {
     setThemeState(newTheme);
@@ -127,7 +139,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (e) {
       console.warn('Could not refresh history:', e);
     }
+
+    try {
+      const status = await apiRequest<WorkspaceStatus>('/workspace/status', {}, settings);
+      setWorkspaceStatus(status);
+      setIsWorkspaceDirty(Boolean(status?.is_dirty));
+    } catch (e) {
+      console.warn('Could not check workspace status:', e);
+    }
   }, [settings]);
+
+  const checkWorkspaceStatus = useCallback(async (): Promise<WorkspaceStatus | null> => {
+    try {
+      const status = await apiRequest<WorkspaceStatus>('/workspace/status', {}, settings);
+      setWorkspaceStatus(status);
+      setIsWorkspaceDirty(Boolean(status?.is_dirty));
+      return status;
+    } catch (e) {
+      console.warn('Could not check workspace status:', e);
+      return null;
+    }
+  }, [settings]);
+
+  const executeScenario = useCallback(
+    async (scenario: string, customSql?: string): Promise<DemoSimulateResult> => {
+      const result = await apiRequest<DemoSimulateResult>(
+        '/demo/simulate',
+        {
+          method: 'POST',
+          body: { scenario, custom_sql: customSql },
+        },
+        settings
+      );
+      if (result.workspace_status) {
+        setWorkspaceStatus(result.workspace_status);
+        setIsWorkspaceDirty(Boolean(result.workspace_status.is_dirty));
+      }
+      if (result.suggested_commit_message) {
+        setSuggestedCommitMessage(result.suggested_commit_message);
+      }
+      await refreshState();
+      return result;
+    },
+    [settings, refreshState]
+  );
 
   useEffect(() => {
     refreshState();
@@ -158,6 +213,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         removeToast,
         isSettingsOpen,
         setIsSettingsOpen,
+        workspaceStatus,
+        isWorkspaceDirty,
+        checkWorkspaceStatus,
+        isDemoModalOpen,
+        setIsDemoModalOpen,
+        suggestedCommitMessage,
+        setSuggestedCommitMessage,
+        executeScenario,
       }}
     >
       {children}

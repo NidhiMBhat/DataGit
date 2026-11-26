@@ -8,7 +8,9 @@
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
     "backend": "PYTHONPATH=backend .venv/bin/python -m uvicorn dagit.api.app:app --reload --host 127.0.0.1 --port 8000",
-    "seed": "PYTHONPATH=backend .venv/bin/python backend/populate_demo_db.py"
+    "seed": "PYTHONPATH=backend .venv/bin/python backend/populate_demo_db.py",
+    "db:inspect": "PYTHONPATH=backend .venv/bin/python backend/inspect_db.py",
+    "demo:live": "PYTHONPATH=backend .venv/bin/python backend/demo_live_change.py"
   },
   "keywords": [
     "datagit",

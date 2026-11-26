@@ -156,6 +156,34 @@ export interface DatabaseSchemaResponse {
   total_sequences: number;
 }
 
+export interface WorkspaceStatus {
+  is_dirty: boolean;
+  current_head: number | null;
+  active_branch: string | null;
+  head_hash?: string;
+  current_hash?: string;
+  summary?: DiffSummary;
+  schema_changes?: DiffChangeItem[];
+  row_changes?: DiffChangeItem[];
+}
+
+export interface DemoScenario {
+  key: string;
+  title: string;
+  description: string;
+  suggested_commit_message: string;
+  sql: string;
+}
+
+export interface DemoSimulateResult {
+  scenario: string;
+  title: string;
+  description: string;
+  executed_sql: string;
+  suggested_commit_message: string;
+  workspace_status: WorkspaceStatus;
+}
+
 export interface MergeResponse {
   merge_commit_id: number;
 }

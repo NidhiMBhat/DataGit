@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ToastContainer } from './components/ToastContainer';
 import { SettingsModal } from './components/SettingsModal';
+import { DemoPlaygroundModal } from './components/DemoPlaygroundModal';
 import { HistoryTab } from './components/tabs/HistoryTab';
 import { SchemaTab } from './components/tabs/SchemaTab';
 import { SnapshotTab } from './components/tabs/SnapshotTab';
@@ -40,6 +41,7 @@ export const AppContent: React.FC = () => {
       </div>
 
       <SettingsModal />
+      <DemoPlaygroundModal />
       <ToastContainer />
     </div>
   );

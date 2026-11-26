@@ -17,7 +17,8 @@ Welcome to **DataGit** — the version control system for PostgreSQL databases. 
    - [6. 3-Way Merging & Conflict Resolution](#6-3-way-merging--conflict-resolution)
    - [7. Storage & Performance Benchmark](#7-storage--performance-benchmark)
    - [8. Time-Travel & Rollback Station](#8-time-travel--rollback-station)
-   - [9. Settings, API Keys & Operational Safeguards](#9-settings-api-keys--operational-safeguards)
+   - [9. Live Demo: Real-Time PostgreSQL Manipulation & Instant Detection](#9-live-demo-real-time-postgresql-manipulation--instant-detection)
+   - [10. Settings, API Keys & Operational Safeguards](#10-settings-api-keys--operational-safeguards)
 4. [Backend API Reference](#backend-api-reference)
 5. [Troubleshooting & FAQ](#troubleshooting--faq)
 
@@ -214,7 +215,44 @@ Revert the PostgreSQL database safely to any point in history:
 
 ---
 
-### 9. Settings, API Keys & Operational Safeguards
+### 9. Live Demo: Real-Time PostgreSQL Manipulation & Instant Detection
+**Header Button: `⚡ Live Demo` & Floating Live Banner**
+
+During presentations, you can demonstrate DataGit detecting, diffing, and recording live PostgreSQL changes in real-time using either the in-app interactive playground or the CLI script:
+
+#### Method A: Using the In-App Live Demo Playground
+1. Click the **`⚡ Live Demo`** button in the top navigation bar.
+2. Select any pre-configured e-commerce scenario:
+   - **Flash Sale (Price Drop)**: Slashes electronics prices by 25% and updates product tags.
+   - **Customer Order & VIP Upgrade**: Inserts order `ORD-99001` ($948.99), deducts product stock, and upgrades customer Alice Chen to *Platinum* tier.
+   - **Product Launch & Schema Migration**: Executes `ALTER TABLE products ADD COLUMN warranty_months INT DEFAULT 12`, inserts a *Smart Wearables* category, and creates *Vision Pro AR Glasses*.
+   - **Custom SQL**: Type and execute any arbitrary SQL query on `datagit_db`.
+3. Notice the immediate reaction across the interface:
+   - **Workspace Status Pill**: Changes from `Clean` to amber `● Dirty DB`.
+   - **Floating Live Banner**: Appears at the top with badges indicating exact tables and rows changed (e.g., `⚡ Uncommitted Changes Detected (1 Table, 3 Rows Changed)`).
+   - **Inspect Live Diff**: Click **Inspect in Diff** to jump directly to the Diff tab with the `⚡ Uncommitted Changes vs HEAD` view active, displaying exact before/after row and schema changes.
+   - **1-Click Commit**: Click **Commit Now** to open the Snapshot creator with the scenario's suggested commit message pre-filled.
+4. Click **Reset to Clean HEAD** at any time to return the PostgreSQL database back to the exact HEAD state.
+
+#### Method B: Using External SQL / CLI Script
+You can also run external commands from your terminal or `psql` while keeping the DataGit UI open:
+```bash
+# Run pre-packaged scenarios via CLI
+npm run demo:live flash_sale
+npm run demo:live new_order
+npm run demo:live product_launch
+
+# Or directly in psql:
+psql -d datagit_db -c "UPDATE products SET price = 19.99 WHERE id = 1;"
+
+# Reset database to HEAD snapshot
+npm run demo:live reset
+```
+The DataGit web UI automatically polls workspace status every 4 seconds and displays the changes live!
+
+---
+
+### 10. Settings, API Keys & Operational Safeguards
 **Settings Modal (Gear Icon or Avatar)**
 
 Configure authentication and operational protection:
@@ -231,6 +269,9 @@ All versioning features are accessible via HTTP REST endpoints at `/api`:
 
 | Method | Endpoint | Description |
 |---|---|---|
+| `GET` | `/api/workspace/status` | Detect uncommitted database changes vs current HEAD snapshot |
+| `GET` | `/api/demo/scenarios` | List built-in demo scenarios and their SQL scripts |
+| `POST` | `/api/demo/simulate` | Execute a demo scenario or arbitrary SQL against PostgreSQL |
 | `GET` | `/api/schema` | Inspect live or historical database schema (`?commit_id=X` or `?branch=Y`) |
 | `GET` | `/api/history` | List reachable commits (`?branch=X&limit=N`) |
 | `GET` | `/api/commits/{commit_id}` | Retrieve specific commit metadata and parent links |
